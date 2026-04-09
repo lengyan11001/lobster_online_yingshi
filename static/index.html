@@ -295,16 +295,43 @@
               <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
                 <h3 style="margin:0;">Instagram / Facebook</h3>
                 <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-                  <button type="button" id="metaSocialBackBtn" class="btn btn-ghost btn-sm">← 返回技能商店</button>
+                  <button type="button" id="metaSocialBackBtn" class="btn btn-ghost btn-sm">&larr; 返回技能商店</button>
                   <button type="button" id="metaSocialRefreshBtn" class="btn btn-ghost btn-sm">刷新列表</button>
-                  <button type="button" id="metaSocialAddBtn" class="btn btn-primary btn-sm">+ 连接 Instagram / Facebook</button>
                 </div>
               </div>
               <p style="font-size:0.82rem;color:var(--text-muted);margin:0.75rem 0;line-height:1.55;">
                 通过 Facebook OAuth 授权连接你的 Instagram Business 或 Facebook 主页。
                 授权后可在对话中使用 <code>publish_meta_social</code> 发布内容，或用 <code>sync_meta_social_data</code> 拉取最新数据。
-                Instagram 支持 photo / video / reel / story / carousel；Facebook 支持 photo / video / link。
               </p>
+
+              <!-- Facebook App 凭据表单 -->
+              <div style="margin:1rem 0;padding:1rem;border:1px solid var(--border);border-radius:var(--radius);background:rgba(255,255,255,0.02);">
+                <div class="section-title" style="font-size:0.95rem;margin-bottom:0.5rem;">连接新账号</div>
+                <p style="font-size:0.78rem;color:var(--text-muted);margin:0 0 0.75rem 0;line-height:1.5;">
+                  1. 前往 <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener">developers.facebook.com</a> 创建 Facebook App<br>
+                  2. 在 App 设置 &gt; Facebook Login &gt; Valid OAuth Redirect URIs 中添加下方回调地址<br>
+                  3. 填入 App ID 和 App Secret，点击「授权连接」
+                </p>
+                <div style="margin-bottom:0.5rem;">
+                  <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">OAuth 回调地址（添加到 Facebook App 设置中）</label>
+                  <pre id="metaSocialRedirectUri" style="font-size:0.78rem;padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius);background:rgba(0,0,0,0.15);margin:0;user-select:all;overflow-x:auto;">加载中…</pre>
+                </div>
+                <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+                  <div style="flex:1;min-width:200px;">
+                    <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">Facebook App ID</label>
+                    <input type="text" id="metaAppIdInput" class="input" placeholder="例: 123456789012345" style="width:100%;font-size:0.85rem;">
+                  </div>
+                  <div style="flex:1;min-width:200px;">
+                    <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">Facebook App Secret</label>
+                    <div style="display:flex;gap:0.25rem;">
+                      <input type="password" id="metaAppSecretInput" class="input" placeholder="App Secret" style="flex:1;font-size:0.85rem;">
+                      <button type="button" id="metaAppSecretToggle" class="btn btn-ghost btn-sm" style="flex-shrink:0;">显示</button>
+                    </div>
+                  </div>
+                </div>
+                <button type="button" id="metaSocialConnectBtn" class="btn btn-primary btn-sm">授权连接</button>
+              </div>
+
               <div id="metaSocialPageMsg" class="msg" style="display:none;margin-bottom:0.75rem;"></div>
               <div id="metaSocialAccountsList"></div>
               <div class="section-divider" style="margin:1rem 0;"></div>

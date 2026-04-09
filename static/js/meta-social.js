@@ -1,6 +1,6 @@
 /**
  * Meta Social (Instagram / Facebook) 账号管理页。
- * OAuth 授权在服务器端完成（需要公网回调），本页通过 AUTH_SERVER_BASE 代理所有 API 调用。
+ * 支持 per-user Facebook App 凭据：用户填写自己的 App ID / Secret，服务器中转 OAuth。
  */
 (function () {
   function serverBase() {
@@ -11,6 +11,10 @@
 
   function hdrs() {
     return Object.assign({ 'Content-Type': 'application/json' }, typeof authHeaders === 'function' ? authHeaders() : {});
+  }
+
+  function jwtToken() {
+    try { return typeof authHeaders === 'function' ? (authHeaders()['Authorization'] || '').replace('Bearer ', '') : ''; } catch (e) { return ''; }
   }
 
   function escapeH(s) { return typeof escapeHtml === 'function' ? escapeHtml(s) : String(s || ''); }
@@ -29,6 +33,23 @@
     if (plat === 'facebook') return '<span style="color:#1877f2;font-weight:600;">FB</span>';
     return escapeH(plat || '');
   }
+
+  // ── OAuth redirect URI (display to user) ──
+
+  function loadRedirectUri() {
+    var el = document.getElementById('metaSocialRedirectUri');
+    if (!el) return;
+    var base = serverBase();
+    if (!base) return;
+    fetch(base + '/api/meta-social/oauth/redirect-uri', { headers: hdrs() })
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d && d.redirect_uri) el.textContent = d.redirect_uri;
+      })
+      .catch(function () {});
+  }
+
+  // ── Account list ──
 
   function renderAccountList() {
     var listEl = document.getElementById('metaSocialAccountsList');
@@ -50,24 +71,30 @@
         var rows = Array.isArray(x.d) ? x.d : (x.d && Array.isArray(x.d.accounts) ? x.d.accounts : []);
         _accounts = rows;
         if (rows.length === 0) {
-          listEl.innerHTML = '<p class="meta">暂无已连接账号。点击「连接 Instagram / Facebook」通过 Facebook OAuth 授权。</p>';
+          listEl.innerHTML = '<p class="meta">暂无已连接账号。请先填写 Facebook App 凭据，然后点击「授权连接」。</p>';
           return;
         }
         var html = '<div class="skill-store-grid" style="gap:0.75rem;">';
         rows.forEach(function (a) {
-          var label = a.label || a.username || a.page_name || ('账号 #' + a.id);
-          var plat = a.platform || 'unknown';
-          var igUser = a.ig_username ? ('@' + a.ig_username) : '';
-          var pageName = a.page_name || '';
-          var detail = plat === 'instagram'
-            ? (igUser || pageName)
-            : pageName;
-          html += '<div class="skill-store-card" style="border-color:' + (plat === 'instagram' ? 'rgba(225,48,108,0.35)' : 'rgba(24,119,242,0.35)') + ';background:linear-gradient(135deg,' + (plat === 'instagram' ? 'rgba(225,48,108,0.06)' : 'rgba(24,119,242,0.06)') + ',transparent);">';
-          html += '<div class="card-label">' + platformBadge(plat) + ' <span class="badge-installed">已连接</span></div>';
+          var label = a.label || a.facebook_page_name || ('账号 #' + a.id);
+          var igUser = a.instagram_username ? ('@' + a.instagram_username) : '';
+          var pageName = a.facebook_page_name || '';
+          var detail = igUser ? (igUser + (pageName ? ' · ' + pageName : '')) : pageName;
+          var hasIG = !!a.instagram_business_account_id;
+          var borderColor = hasIG ? 'rgba(225,48,108,0.35)' : 'rgba(24,119,242,0.35)';
+          var bgGrad = hasIG ? 'rgba(225,48,108,0.06)' : 'rgba(24,119,242,0.06)';
+
+          html += '<div class="skill-store-card" style="border-color:' + borderColor + ';background:linear-gradient(135deg,' + bgGrad + ',transparent);">';
+          html += '<div class="card-label">';
+          if (hasIG) html += platformBadge('instagram') + ' + ';
+          html += platformBadge('facebook');
+          html += ' <span class="badge-installed">已连接</span></div>';
           html += '<div class="card-value">' + escapeH(label) + '</div>';
           if (detail) html += '<div class="card-desc">' + escapeH(detail) + '</div>';
-          if (a.proxy_url) html += '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">代理: ' + escapeH(a.proxy_url) + '</div>';
-          html += '<div class="card-actions" style="display:flex;gap:0.35rem;flex-wrap:wrap;">';
+          if (a.meta_app_id) html += '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.15rem;">App ID: ' + escapeH(a.meta_app_id) + '</div>';
+          if (a.token_expires_at) html += '<div style="font-size:0.72rem;color:var(--text-muted);">Token 过期: ' + escapeH(a.token_expires_at).slice(0, 10) + '</div>';
+          html += '<div class="card-actions" style="display:flex;gap:0.35rem;flex-wrap:wrap;margin-top:0.5rem;">';
+          html += '<button type="button" class="btn btn-ghost btn-sm meta-social-reauth-btn" data-id="' + a.id + '">重新授权</button>';
           html += '<button type="button" class="btn btn-ghost btn-sm meta-social-sync-btn" data-id="' + a.id + '">同步数据</button>';
           html += '<button type="button" class="btn btn-ghost btn-sm meta-social-edit-btn" data-id="' + a.id + '">编辑</button>';
           html += '<button type="button" class="btn btn-ghost btn-sm meta-social-del-btn" data-id="' + a.id + '" style="color:#fb7185;">删除</button>';
@@ -83,6 +110,31 @@
   }
 
   function bindAccountActions() {
+    document.querySelectorAll('.meta-social-reauth-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var aid = btn.getAttribute('data-id');
+        var token = jwtToken();
+        var url = serverBase() + '/api/meta-social/accounts/' + aid + '/reauth';
+        if (token) url += '?token=' + encodeURIComponent(token);
+        btn.disabled = true;
+        fetch(url, { headers: hdrs() })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            btn.disabled = false;
+            if (d && d.login_url) {
+              window.open(d.login_url, '_blank');
+              showMsg(document.getElementById('metaSocialPageMsg'), '已打开 Facebook 授权页面。完成后请刷新列表。', false);
+            } else {
+              showMsg(document.getElementById('metaSocialPageMsg'), '重新授权失败: ' + (d.detail || JSON.stringify(d)), true);
+            }
+          })
+          .catch(function (e) {
+            btn.disabled = false;
+            showMsg(document.getElementById('metaSocialPageMsg'), '重新授权失败: ' + e.message, true);
+          });
+      });
+    });
+
     document.querySelectorAll('.meta-social-sync-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var aid = btn.getAttribute('data-id');
@@ -136,24 +188,49 @@
     });
   }
 
-  function startOAuth() {
+  // ── New OAuth with user-provided App credentials ──
+
+  function startOAuthWithCredentials() {
     var base = serverBase();
     if (!base) { alert('未配置服务器地址'); return; }
-    var token = '';
-    try { token = typeof authHeaders === 'function' ? (authHeaders()['Authorization'] || '').replace('Bearer ', '') : ''; } catch (e) {}
-    var url = base + '/api/meta-social/oauth/start';
-    if (token) url += '?token=' + encodeURIComponent(token);
-    window.open(url, '_blank');
-    var msgEl = document.getElementById('metaSocialPageMsg');
-    showMsg(msgEl, '已打开 Facebook 授权页面。授权完成后请点击「刷新列表」。', false);
+    var appId = (document.getElementById('metaAppIdInput') || {}).value || '';
+    var appSecret = (document.getElementById('metaAppSecretInput') || {}).value || '';
+    if (!appId.trim() || !appSecret.trim()) {
+      showMsg(document.getElementById('metaSocialPageMsg'), '请填写 Facebook App ID 和 App Secret。', true);
+      return;
+    }
+    var token = jwtToken();
+    var url = base + '/api/meta-social/oauth/start?app_id=' + encodeURIComponent(appId.trim())
+      + '&app_secret=' + encodeURIComponent(appSecret.trim());
+    if (token) url += '&token=' + encodeURIComponent(token);
+    showMsg(document.getElementById('metaSocialPageMsg'), '正在获取授权链接…', false);
+    fetch(url, { headers: hdrs() })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (x) {
+        if (!x.ok) {
+          showMsg(document.getElementById('metaSocialPageMsg'), '获取授权链接失败: ' + (x.d.detail || JSON.stringify(x.d)), true);
+          return;
+        }
+        if (x.d && x.d.login_url) {
+          window.open(x.d.login_url, '_blank');
+          showMsg(document.getElementById('metaSocialPageMsg'), '已打开 Facebook 授权页面。授权完成后请点击「刷新列表」。', false);
+        }
+      })
+      .catch(function (e) {
+        showMsg(document.getElementById('metaSocialPageMsg'), '获取授权链接失败: ' + e.message, true);
+      });
   }
+
+  // ── Page init ──
 
   function loadMetaSocialPage() {
     renderAccountList();
-    var addBtn = document.getElementById('metaSocialAddBtn');
-    if (addBtn && !addBtn._bound) {
-      addBtn._bound = true;
-      addBtn.addEventListener('click', startOAuth);
+    loadRedirectUri();
+
+    var connectBtn = document.getElementById('metaSocialConnectBtn');
+    if (connectBtn && !connectBtn._bound) {
+      connectBtn._bound = true;
+      connectBtn.addEventListener('click', startOAuthWithCredentials);
     }
     var refreshBtn = document.getElementById('metaSocialRefreshBtn');
     if (refreshBtn && !refreshBtn._bound) {
@@ -175,6 +252,19 @@
         }
       });
     }
+
+    // toggle password visibility
+    var toggleBtn = document.getElementById('metaAppSecretToggle');
+    if (toggleBtn && !toggleBtn._bound) {
+      toggleBtn._bound = true;
+      toggleBtn.addEventListener('click', function () {
+        var inp = document.getElementById('metaAppSecretInput');
+        if (!inp) return;
+        inp.type = inp.type === 'password' ? 'text' : 'password';
+        toggleBtn.textContent = inp.type === 'password' ? '显示' : '隐藏';
+      });
+    }
+
     loadMetaSocialDataView();
     loadMetaSocialSchedules();
   }
