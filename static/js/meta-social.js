@@ -92,6 +92,7 @@
           html += '<div class="card-value">' + escapeH(label) + '</div>';
           if (detail) html += '<div class="card-desc">' + escapeH(detail) + '</div>';
           if (a.meta_app_id) html += '<div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.15rem;">App ID: ' + escapeH(a.meta_app_id) + '</div>';
+          if (a.proxy_server_masked) html += '<div style="font-size:0.72rem;color:var(--text-muted);">代理: ' + escapeH(a.proxy_server_masked) + '</div>';
           if (a.token_expires_at) html += '<div style="font-size:0.72rem;color:var(--text-muted);">Token 过期: ' + escapeH(a.token_expires_at).slice(0, 10) + '</div>';
           html += '<div class="card-actions" style="display:flex;gap:0.35rem;flex-wrap:wrap;margin-top:0.5rem;">';
           html += '<button type="button" class="btn btn-ghost btn-sm meta-social-reauth-btn" data-id="' + a.id + '">重新授权</button>';
@@ -199,9 +200,15 @@
       showMsg(document.getElementById('metaSocialPageMsg'), '请填写 Facebook App ID 和 App Secret。', true);
       return;
     }
+    var proxyServer = (document.getElementById('metaProxyServerInput') || {}).value || '';
+    var proxyUser = (document.getElementById('metaProxyUserInput') || {}).value || '';
+    var proxyPass = (document.getElementById('metaProxyPassInput') || {}).value || '';
     var token = jwtToken();
     var url = base + '/api/meta-social/oauth/start?app_id=' + encodeURIComponent(appId.trim())
       + '&app_secret=' + encodeURIComponent(appSecret.trim());
+    if (proxyServer.trim()) url += '&proxy_server=' + encodeURIComponent(proxyServer.trim());
+    if (proxyUser.trim()) url += '&proxy_username=' + encodeURIComponent(proxyUser.trim());
+    if (proxyPass.trim()) url += '&proxy_password=' + encodeURIComponent(proxyPass.trim());
     if (token) url += '&token=' + encodeURIComponent(token);
     showMsg(document.getElementById('metaSocialPageMsg'), '正在获取授权链接…', false);
     fetch(url, { headers: hdrs() })
