@@ -77,19 +77,31 @@ async def get_channel_uploads_playlist(
 
 
 async def get_playlist_videos(
-    playlist_id: str, access_token: str, max_results: int = 50,
+    playlist_id: str, access_token: str, max_results: int = 200,
     proxy_url: Optional[str] = None,
 ) -> List[str]:
-    data = await _yt_get(
-        f"{YT_DATA_BASE}/playlistItems", access_token,
-        {"part": "contentDetails", "playlistId": playlist_id, "maxResults": str(max_results)},
-        proxy_url,
-    )
-    return [
-        item["contentDetails"]["videoId"]
-        for item in data.get("items", [])
-        if "contentDetails" in item and "videoId" in item["contentDetails"]
-    ]
+    video_ids: List[str] = []
+    page_token: Optional[str] = None
+    per_page = min(max_results, 50)
+    while len(video_ids) < max_results:
+        params: Dict[str, str] = {
+            "part": "contentDetails",
+            "playlistId": playlist_id,
+            "maxResults": str(per_page),
+        }
+        if page_token:
+            params["pageToken"] = page_token
+        data = await _yt_get(
+            f"{YT_DATA_BASE}/playlistItems", access_token, params, proxy_url,
+        )
+        for item in data.get("items", []):
+            vid = (item.get("contentDetails") or {}).get("videoId")
+            if vid:
+                video_ids.append(vid)
+        page_token = data.get("nextPageToken")
+        if not page_token:
+            break
+    return video_ids[:max_results]
 
 
 async def get_videos_stats(

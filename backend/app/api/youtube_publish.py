@@ -910,7 +910,7 @@ async def youtube_account_analytics(
     if ent.get("status") != "ready":
         raise HTTPException(status_code=400, detail="账号未完成授权")
 
-    proxy_url = build_httpx_proxy_url(ent) if ent.get("proxy_server") else None
+    proxy_url = build_httpx_proxy_url(ent.get("proxy_server"), ent.get("proxy_username"), ent.get("proxy_password")) if ent.get("proxy_server") else None
     try:
         data = await sync_youtube_account_data(ent, proxy_url=proxy_url)
     except RuntimeError as e:
@@ -931,7 +931,7 @@ async def youtube_sync_analytics(
     if ent.get("status") != "ready":
         raise HTTPException(status_code=400, detail="账号未完成授权")
 
-    proxy_url = build_httpx_proxy_url(ent) if ent.get("proxy_server") else None
+    proxy_url = build_httpx_proxy_url(ent.get("proxy_server"), ent.get("proxy_username"), ent.get("proxy_password")) if ent.get("proxy_server") else None
     try:
         data = await sync_youtube_account_data(ent, proxy_url=proxy_url)
     except RuntimeError as e:

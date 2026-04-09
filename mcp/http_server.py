@@ -926,6 +926,13 @@ def _tool_definitions(catalog: Dict[str, Dict[str, Any]], *, is_skill_store_admi
                         "enum": ["private", "unlisted", "public"],
                         "description": "可见性，默认 private",
                     },
+                    "category_id": {"type": "string", "description": "YouTube 分类 ID（如 22=People & Blogs），可省略"},
+                    "tags": {"type": "array", "items": {"type": "string"}, "description": "视频标签，可省略"},
+                    "material_origin": {
+                        "type": "string",
+                        "enum": ["original", "ai_generated", "mixed"],
+                        "description": "素材来源（original/ai_generated/mixed），默认按素材自动判断",
+                    },
                 },
                 "required": ["asset_id", "youtube_account_id"],
             },
@@ -988,6 +995,11 @@ def _tool_definitions(catalog: Dict[str, Dict[str, Any]], *, is_skill_store_admi
                     "tags": {"type": "array", "items": {"type": "string"}, "description": "话题标签"},
                     "link": {"type": "string", "description": "链接（仅 Facebook link 类型）"},
                     "title": {"type": "string", "description": "标题（仅 Facebook 视频）"},
+                    "carousel_items": {
+                        "type": "array",
+                        "items": {"type": "object"},
+                        "description": '轮播子项（仅 IG carousel）：[{"image_url":"..."} 或 {"video_url":"..."}]',
+                    },
                 },
                 "required": ["account_id", "platform", "content_type"],
             },
@@ -3345,6 +3357,10 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
             }
             if body["privacy_status"] not in ("private", "unlisted", "public"):
                 body["privacy_status"] = "private"
+            for k in ("category_id", "tags", "material_origin"):
+                v = args.get(k)
+                if v is not None:
+                    body[k] = v
             logger.info("[MCP] publish_youtube_video asset_id=%s account_id=%s", asset_id, yid)
             async with httpx.AsyncClient(timeout=600.0) as client:
                 r = await client.post(
@@ -3408,7 +3424,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                 "platform": args.get("platform", "instagram"),
                 "content_type": args.get("content_type", "photo"),
             }
-            for k in ("asset_id", "image_url", "video_url", "caption", "message", "link", "title", "tags"):
+            for k in ("asset_id", "image_url", "video_url", "caption", "message", "link", "title", "tags", "carousel_items"):
                 v = args.get(k)
                 if v is not None:
                     body[k] = v
