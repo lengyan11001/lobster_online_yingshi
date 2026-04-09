@@ -22,7 +22,7 @@
     "enabled": true,
     "load": {
       "paths": [
-        "D:\\lobster_online\\nodejs\\node_modules\\@tencent-weixin\\openclaw-weixin"
+        "E:\\lobster_online\\nodejs\\node_modules\\@tencent-weixin\\openclaw-weixin"
       ]
     },
     "entries": {
@@ -33,8 +33,8 @@
     "installs": {
       "openclaw-weixin": {
         "source": "path",
-        "sourcePath": "D:\\lobster_online\\nodejs\\node_modules\\@tencent-weixin\\openclaw-weixin",
-        "installPath": "D:\\lobster_online\\openclaw\\extensions\\openclaw-weixin",
+        "sourcePath": "E:\\lobster_online\\nodejs\\node_modules\\@tencent-weixin\\openclaw-weixin",
+        "installPath": "E:\\lobster_online\\openclaw\\extensions\\openclaw-weixin",
         "version": "2.1.6",
         "installedAt": "2026-04-05T18:33:25.406Z"
       }

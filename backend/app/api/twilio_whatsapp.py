@@ -72,11 +72,11 @@ def _mask_token_set() -> bool:
 
 
 def _twilio_poll_auto_enabled() -> bool:
-    """后台定时拉取 pending 并自动回复；False 时仅跳过定时任务，「拉取并回复」仍可手动调用。"""
+    """后台定时拉取 pending 并自动回复；默认关闭，用户在 UI 中手动开启后才生效。"""
     v = _read_twilio_file().get("poll_auto_enabled")
-    if v is False:
-        return False
-    return True
+    if v is True:
+        return True
+    return False
 
 
 class TwilioPollAutoBody(BaseModel):
@@ -886,19 +886,25 @@ def twilio_whatsapp_poll_auto_set(
     return {"ok": True, "enabled": body.enabled}
 
 
+_twilio_poll_consecutive_errors = 0
+
 async def twilio_whatsapp_poll_loop():
-    """后台每 2 秒拉取云端 WhatsApp 待处理并 AI 回复（需已配置 twilio_remote_api_base）。"""
+    """后台拉取云端 WhatsApp 待处理并 AI 回复。未配置或已暂停时 10s 一检；连续失败时指数退避到 60s。"""
+    global _twilio_poll_consecutive_errors
     while True:
-        await asyncio.sleep(2)
-        if not _twilio_remote_upstream_base():
+        if not _twilio_remote_upstream_base() or not _twilio_poll_auto_enabled():
+            await asyncio.sleep(10)
             continue
-        if not _twilio_poll_auto_enabled():
-            continue
+        backoff = min(2 * (2 ** _twilio_poll_consecutive_errors), 60)
+        await asyncio.sleep(backoff)
         db = SessionLocal()
         try:
             await _do_twilio_poll_and_reply(db)
+            _twilio_poll_consecutive_errors = 0
         except Exception as e:
-            logger.exception("[Twilio WA] 自动拉取回复: %s", e)
+            _twilio_poll_consecutive_errors += 1
+            if _twilio_poll_consecutive_errors <= 3 or _twilio_poll_consecutive_errors % 30 == 0:
+                logger.error("[Twilio WA] 拉取回复失败 (连续第%d次): %s", _twilio_poll_consecutive_errors, e)
         finally:
             db.close()
 

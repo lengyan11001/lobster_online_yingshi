@@ -2,7 +2,7 @@
 打开可见 Chrome/Chromium → 小红书创作者平台，分阶段采集首页 / 数据总览 / 笔记管理 / 单篇详情 的 XHR 线索。
 
 用法:
-  cd D:\\lobster
+  cd E:\\lobster_online
   python scripts\\inspect_xiaohongshu_creator_data.py
   python scripts\\inspect_xiaohongshu_creator_data.py --wait-seconds 300 --detail-wait 90
 

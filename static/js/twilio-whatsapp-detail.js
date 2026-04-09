@@ -48,8 +48,8 @@
       btn.dataset.pollAutoEnabled = en ? '1' : '0';
       btn.textContent = en ? '停止自动回复' : '恢复自动回复';
     }).catch(function() {
-      btn.dataset.pollAutoEnabled = '1';
-      btn.textContent = '停止自动回复';
+      btn.dataset.pollAutoEnabled = '0';
+      btn.textContent = '恢复自动回复';
     });
   }
 

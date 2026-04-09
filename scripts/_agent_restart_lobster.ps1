@@ -2,7 +2,7 @@
 $ErrorActionPreference = "SilentlyContinue"
 $root = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 if (-not (Test-Path (Join-Path $root "backend\run.py"))) {
-    $root = "D:\lobster_online"
+    $root = "E:\lobster_online"
 }
 Set-Location $root
 

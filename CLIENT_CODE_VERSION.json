@@ -1,6 +1,6 @@
 {
-  "version": "1.0.7",
-  "build": 13,
-  "applied_at": "2026-04-08T18:25:00.000Z",
-  "note": "默认 OTA 与 DEFAULT_PATHS 一致（含 npm 引导脚本，无 node_modules）；整包依赖见 DEFAULT_PATHS_WITH_NODEJS_DEPS"
+  "version": "1.0.8",
+  "build": 14,
+  "applied_at": "2026-04-09T10:30:00.000Z",
+  "note": "Meta Social (IG/FB) 发布 + YouTube 数据分析 + Twilio WA 轮询优化 + 电商上架方案"
 }

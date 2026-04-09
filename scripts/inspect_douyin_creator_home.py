@@ -2,7 +2,7 @@
 打开可见 Chromium → 抖音创作者首页，供人工登录后探测数据从哪来。
 
 用法（在 PowerShell 里执行，不要后台跑）:
-  cd D:\\lobster
+  cd E:\\lobster_online
   python scripts/inspect_douyin_creator_home.py
 
 默认先等待 600 秒让你登录；时间可改:

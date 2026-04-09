@@ -4,7 +4,7 @@
 与「抖音 inspect_douyin_creator_home.py」同一套路：持久化 Profile、监听 XHR/fetch、落盘 HTML/正文/URL/JSON 样例。
 
 用法（在 lobster 根目录）:
-  cd D:\\lobster
+  cd E:\\lobster_online
   python scripts/inspect_toutiao_mp_home.py
 
 默认等待 **180 秒（3 分钟）**；等待期间**每隔一段时间动态落盘**（无需等倒计时结束也能看 XHR/控件）:
