@@ -76,6 +76,7 @@
             ' · 代理: ' + escapeHtml(a.proxy_server_masked || '无') + '</div>' + err + '</div>' +
             '<div style="display:flex;flex-wrap:wrap;gap:0.35rem;">' +
             '<button type="button" class="btn btn-ghost btn-sm yt-edit-btn" data-aid="' + escapeAttr(a.account_id || '') + '">编辑</button>' +
+            '<button type="button" class="btn btn-ghost btn-sm yt-analytics-btn" data-aid="' + escapeAttr(a.account_id || '') + '">频道数据</button>' +
             '<button type="button" class="btn btn-ghost btn-sm yt-sched-btn" data-aid="' + escapeAttr(a.account_id || '') + '">定时发布</button>' +
             '<button type="button" class="btn btn-primary btn-sm yt-oauth-btn" data-aid="' + escapeAttr(a.account_id || '') + '">浏览器授权</button>' +
             '<button type="button" class="btn btn-ghost btn-sm yt-del-btn" data-aid="' + escapeAttr(a.account_id || '') + '">删除</button>' +
@@ -90,12 +91,65 @@
         listEl.querySelectorAll('.yt-del-btn').forEach(function(btn) {
           btn.addEventListener('click', function() { delAccount(btn.getAttribute('data-aid')); });
         });
+        listEl.querySelectorAll('.yt-analytics-btn').forEach(function(btn) {
+          btn.addEventListener('click', function() { showAnalytics(btn.getAttribute('data-aid'), btn); });
+        });
         listEl.querySelectorAll('.yt-sched-btn').forEach(function(btn) {
           btn.addEventListener('click', function() { openScheduleModal(btn.getAttribute('data-aid')); });
         });
       })
       .catch(function(err) {
         if (listEl) listEl.innerHTML = '<p class="msg err">' + escapeHtml((err && err.message) ? err.message : '加载失败') + '</p>';
+      });
+  }
+
+  function showAnalytics(accountId, triggerBtn) {
+    var aid = (accountId || '').trim();
+    if (!aid) return;
+    var existing = document.getElementById('yt-analytics-' + aid);
+    if (existing) { existing.remove(); return; }
+    var card = triggerBtn ? triggerBtn.closest('.config-block-item') : null;
+    if (!card) return;
+    var panel = document.createElement('div');
+    panel.id = 'yt-analytics-' + aid;
+    panel.style.cssText = 'margin:0.5rem 0 0.75rem;padding:0.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:rgba(255,255,255,0.03);font-size:0.82rem;';
+    panel.innerHTML = '<p class="meta">加载频道数据…</p>';
+    card.appendChild(panel);
+    fetch(apiUrl('/api/youtube-publish/accounts/' + encodeURIComponent(aid) + '/analytics'), { headers: hdrs() })
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d, status: r.status }; }); })
+      .then(function(x) {
+        if (!x.ok) {
+          panel.innerHTML = '<p class="msg err">加载失败: ' + escapeHtml((x.d && x.d.detail) || ('HTTP ' + x.status)) + '</p>';
+          return;
+        }
+        var d = x.d;
+        var ch = d.channel_analytics || {};
+        var videos = d.videos || [];
+        var html = '<div style="margin-bottom:0.5rem;font-weight:600;">频道分析（近 28 天）</div>';
+        if (ch.error) {
+          html += '<p class="msg err" style="font-size:0.78rem;">' + escapeHtml(ch.error) + '</p>';
+        } else if (Object.keys(ch).length > 0) {
+          html += '<div style="display:flex;flex-wrap:wrap;gap:0.75rem;margin-bottom:0.5rem;">';
+          if (ch.views !== undefined) html += '<div><div style="font-size:0.75rem;color:var(--text-muted);">播放</div><div style="font-size:1.1rem;font-weight:600;">' + ch.views + '</div></div>';
+          if (ch.likes !== undefined) html += '<div><div style="font-size:0.75rem;color:var(--text-muted);">赞</div><div style="font-size:1.1rem;font-weight:600;">' + ch.likes + '</div></div>';
+          if (ch.subscribersGained !== undefined) html += '<div><div style="font-size:0.75rem;color:var(--text-muted);">新增订阅</div><div style="font-size:1.1rem;font-weight:600;">' + ch.subscribersGained + '</div></div>';
+          if (ch.estimatedMinutesWatched !== undefined) html += '<div><div style="font-size:0.75rem;color:var(--text-muted);">观看时长(分)</div><div style="font-size:1.1rem;font-weight:600;">' + ch.estimatedMinutesWatched + '</div></div>';
+          html += '</div>';
+        }
+        if (videos.length > 0) {
+          html += '<div style="margin-top:0.5rem;font-weight:600;">近期视频（' + videos.length + '）</div>';
+          html += '<div style="max-height:16rem;overflow-y:auto;margin-top:0.35rem;"><table style="width:100%;border-collapse:collapse;font-size:0.78rem;"><thead><tr style="border-bottom:1px solid var(--border);text-align:left;"><th style="padding:0.25rem 0.5rem;">标题</th><th style="padding:0.25rem 0.5rem;">发布时间</th><th style="padding:0.25rem 0.5rem;">播放</th><th style="padding:0.25rem 0.5rem;">赞</th><th style="padding:0.25rem 0.5rem;">评论</th></tr></thead><tbody>';
+          videos.slice(0, 30).forEach(function(v) {
+            html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.05);"><td style="padding:0.2rem 0.5rem;max-width:16rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(v.title || '') + '</td><td style="padding:0.2rem 0.5rem;">' + escapeHtml((v.published_at || '').slice(0, 10)) + '</td><td style="padding:0.2rem 0.5rem;">' + (v.views || 0) + '</td><td style="padding:0.2rem 0.5rem;">' + (v.likes || 0) + '</td><td style="padding:0.2rem 0.5rem;">' + (v.comments || 0) + '</td></tr>';
+          });
+          html += '</tbody></table></div>';
+        }
+        html += '<div style="margin-top:0.5rem;"><button type="button" class="btn btn-ghost btn-sm yt-analytics-close" style="font-size:0.75rem;">收起</button></div>';
+        panel.innerHTML = html;
+        panel.querySelector('.yt-analytics-close').addEventListener('click', function() { panel.remove(); });
+      })
+      .catch(function(e) {
+        panel.innerHTML = '<p class="msg err">' + escapeHtml(e.message || '请求失败') + '</p>';
       });
   }
 

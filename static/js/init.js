@@ -775,6 +775,7 @@ document.querySelectorAll('.nav-left-item').forEach(function(el) {
     if (view === 'logs') { if (typeof ensureLogsBindings === 'function') ensureLogsBindings(); }
     if (view === 'messenger-config' && typeof loadMessengerConfigPage === 'function') loadMessengerConfigPage();
     if (view === 'youtube-accounts' && typeof loadYoutubeAccountsPage === 'function') loadYoutubeAccountsPage();
+    if (view === 'meta-social' && typeof loadMetaSocialPage === 'function') loadMetaSocialPage();
   });
 });
 
@@ -1311,10 +1312,13 @@ function loadLogsView() {
     if (hash === 'youtube-accounts' && typeof window._openYoutubeAccountsView === 'function') {
       window._openYoutubeAccountsView();
     }
+    if (hash === 'meta-social' && typeof window._openMetaSocialView === 'function') {
+      window._openMetaSocialView();
+    }
   }
   window.addEventListener('hashchange', applyHash);
   window._applyWecomConfigHash = applyHash;
-  if (location.hash && (location.hash.indexOf('wecom') !== -1 || location.hash.indexOf('messenger') !== -1 || location.hash.indexOf('twilio-whatsapp') !== -1 || location.hash.indexOf('youtube-accounts') !== -1)) applyHash();
+  if (location.hash && (location.hash.indexOf('wecom') !== -1 || location.hash.indexOf('messenger') !== -1 || location.hash.indexOf('twilio-whatsapp') !== -1 || location.hash.indexOf('youtube-accounts') !== -1 || location.hash.indexOf('meta-social') !== -1)) applyHash();
 })();
 
 applyBrandingFromApi();

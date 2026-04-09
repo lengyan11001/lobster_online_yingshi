@@ -332,7 +332,7 @@ def _load_capability_catalog() -> Dict[str, Dict[str, Any]]:
 
 
 _SKILL_REGISTRY_PATH = Path(__file__).resolve().parent.parent / "skill_registry.json"
-_DEBUG_ONLY_MCP_TOOL_NAMES = frozenset({"list_youtube_accounts", "publish_youtube_video"})
+_DEBUG_ONLY_MCP_TOOL_NAMES = frozenset({"list_youtube_accounts", "publish_youtube_video", "get_youtube_analytics", "sync_youtube_analytics", "list_meta_social_accounts", "publish_meta_social", "get_meta_social_data", "sync_meta_social_data", "get_social_report"})
 
 
 def _load_skill_registry() -> Dict[str, Any]:
@@ -929,6 +929,103 @@ def _tool_definitions(catalog: Dict[str, Dict[str, Any]], *, is_skill_store_admi
                 },
                 "required": ["asset_id", "youtube_account_id"],
             },
+        },
+        {
+            "name": "get_youtube_analytics",
+            "description": "获取指定 YouTube 账号的频道数据：视频列表（含播放、点赞、评论）+ 频道分析（近 28 天观看、订阅等）。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "youtube_account_id": {
+                        "type": "string",
+                        "description": "YouTube 账号 ID（yt_ 开头，来自 list_youtube_accounts）",
+                    },
+                },
+                "required": ["youtube_account_id"],
+            },
+        },
+        {
+            "name": "sync_youtube_analytics",
+            "description": "从 YouTube API 拉取最新的视频统计与频道分析数据。完成后用 get_youtube_analytics 查看。",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "youtube_account_id": {
+                        "type": "string",
+                        "description": "YouTube 账号 ID（yt_ 开头，来自 list_youtube_accounts）",
+                    },
+                },
+                "required": ["youtube_account_id"],
+            },
+        },
+        # ── Meta Social（Instagram / Facebook）──
+        {
+            "name": "list_meta_social_accounts",
+            "description": "列出已连接的 Instagram / Facebook 账号。每条含 id、label、平台信息；发布或查询数据时需先获取 account_id。",
+            "inputSchema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "publish_meta_social",
+            "description": (
+                "发布内容到 Instagram 或 Facebook 主页。"
+                "Instagram 支持 photo/video/carousel/reel/story；Facebook 支持 photo/video/link。"
+                "asset_id 填素材库 ID，系统自动解析公网 URL；也可直接传 image_url/video_url。"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "account_id": {"type": "integer", "description": "Meta 账号 ID（来自 list_meta_social_accounts）"},
+                    "platform": {"type": "string", "enum": ["instagram", "facebook"], "description": "目标平台"},
+                    "content_type": {
+                        "type": "string",
+                        "enum": ["photo", "video", "carousel", "reel", "story", "link"],
+                        "description": "内容类型",
+                    },
+                    "asset_id": {"type": "string", "description": "素材库 asset_id（优先使用）"},
+                    "image_url": {"type": "string", "description": "图片直链（无 asset_id 时使用）"},
+                    "video_url": {"type": "string", "description": "视频直链（无 asset_id 时使用）"},
+                    "caption": {"type": "string", "description": "文案 / 描述"},
+                    "tags": {"type": "array", "items": {"type": "string"}, "description": "话题标签"},
+                    "link": {"type": "string", "description": "链接（仅 Facebook link 类型）"},
+                    "title": {"type": "string", "description": "标题（仅 Facebook 视频）"},
+                },
+                "required": ["account_id", "platform", "content_type"],
+            },
+        },
+        {
+            "name": "get_meta_social_data",
+            "description": (
+                "读取已同步的 Instagram / Facebook 数据：帖子列表（含 likes、comments、reach 等指标）+ 账号级 Insights。"
+                "用户问 IG/FB 表现、数据、互动率时使用；若需最新数据，先调 sync_meta_social_data 再调本工具。"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "account_id": {"type": "integer", "description": "可选，指定账号；不填返回全部"},
+                    "platform": {"type": "string", "enum": ["instagram", "facebook"], "description": "可选，筛选平台"},
+                },
+            },
+        },
+        {
+            "name": "sync_meta_social_data",
+            "description": (
+                "从 Instagram / Facebook API 拉取最新帖子列表与 Insights 数据到本地（耗时数秒到十几秒）。"
+                "同步完成后用 get_meta_social_data 读取结果。"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "account_id": {"type": "integer", "description": "可选，指定账号；不填同步全部"},
+                },
+            },
+        },
+        {
+            "name": "get_social_report",
+            "description": (
+                "跨平台数据报告：聚合 Instagram + Facebook 所有已连接账号的数据摘要（帖子数、总 likes/comments/reach 等）。"
+                "用户问「所有平台表现」「数据总览」「跨平台对比」时使用。数据基于最近一次同步快照。"
+            ),
+            "inputSchema": {"type": "object", "properties": {}},
         },
         {
             "name": "open_account_browser",
@@ -3258,6 +3355,148 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
             data = r.json() if r.content else {}
             text = json.dumps(data, ensure_ascii=False, indent=2)
             return [{"type": "text", "text": text}], r.status_code >= 400
+
+        if name == "get_youtube_analytics":
+            if not await _fetch_is_skill_store_admin(token):
+                return [{"type": "text", "text": "YouTube 数据为调试中能力，当前账号不可用。"}], True
+            yid = (args.get("youtube_account_id") or "").strip()
+            if not yid:
+                return [{"type": "text", "text": "请提供 youtube_account_id（先调用 list_youtube_accounts）"}], True
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                r = await client.get(
+                    f"{BASE_URL}/api/youtube-publish/accounts/{yid}/analytics",
+                    headers=_backend_headers(token, request),
+                )
+            data = r.json() if r.content else {}
+            text = json.dumps(data, ensure_ascii=False, indent=2)
+            return [{"type": "text", "text": text}], r.status_code >= 400
+
+        if name == "sync_youtube_analytics":
+            if not await _fetch_is_skill_store_admin(token):
+                return [{"type": "text", "text": "YouTube 数据为调试中能力，当前账号不可用。"}], True
+            yid = (args.get("youtube_account_id") or "").strip()
+            if not yid:
+                return [{"type": "text", "text": "请提供 youtube_account_id（先调用 list_youtube_accounts）"}], True
+            logger.info("[MCP] sync_youtube_analytics account_id=%s", yid)
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                r = await client.post(
+                    f"{BASE_URL}/api/youtube-publish/accounts/{yid}/sync-analytics",
+                    headers=_backend_headers(token, request),
+                )
+            data = r.json() if r.content else {}
+            text = json.dumps(data, ensure_ascii=False, indent=2)
+            return [{"type": "text", "text": text}], r.status_code >= 400
+
+        # ── Meta Social（Instagram / Facebook）工具 ──
+
+        _meta_server_base = (os.environ.get("AUTH_SERVER_BASE") or "").strip().rstrip("/")
+
+        if name == "list_meta_social_accounts":
+            if not _meta_server_base:
+                return [{"type": "text", "text": "未配置 AUTH_SERVER_BASE，无法连接 Meta Social 服务。"}], True
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.get(f"{_meta_server_base}/api/meta-social/accounts", headers=_backend_headers(token, request))
+            data = r.json() if r.content else []
+            text = json.dumps(data, ensure_ascii=False, indent=2)
+            return [{"type": "text", "text": text}], r.status_code >= 400
+
+        if name == "publish_meta_social":
+            if not _meta_server_base:
+                return [{"type": "text", "text": "未配置 AUTH_SERVER_BASE，无法连接 Meta Social 服务。"}], True
+            body = {
+                "account_id": args.get("account_id"),
+                "platform": args.get("platform", "instagram"),
+                "content_type": args.get("content_type", "photo"),
+            }
+            for k in ("asset_id", "image_url", "video_url", "caption", "message", "link", "title", "tags"):
+                v = args.get(k)
+                if v is not None:
+                    body[k] = v
+            logger.info("[MCP] publish_meta_social body=%s", {k: v for k, v in body.items() if k != "caption"})
+            async with httpx.AsyncClient(timeout=600.0) as client:
+                r = await client.post(
+                    f"{_meta_server_base}/api/meta-social/publish",
+                    headers=_backend_headers(token, request),
+                    json=body,
+                )
+            data = r.json() if r.content else {}
+            text = json.dumps(data, ensure_ascii=False, indent=2)
+            return [{"type": "text", "text": text}], r.status_code >= 400
+
+        if name == "get_meta_social_data":
+            if not _meta_server_base:
+                return [{"type": "text", "text": "未配置 AUTH_SERVER_BASE，无法连接 Meta Social 服务。"}], True
+            params: Dict[str, Any] = {}
+            if args.get("account_id"):
+                params["account_id"] = args["account_id"]
+            if args.get("platform"):
+                params["platform"] = args["platform"]
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.get(
+                    f"{_meta_server_base}/api/meta-social/data",
+                    headers=_backend_headers(token, request),
+                    params=params,
+                )
+            data = r.json() if r.content else {}
+            text = json.dumps(data, ensure_ascii=False, indent=2)
+            return [{"type": "text", "text": text}], r.status_code >= 400
+
+        if name == "sync_meta_social_data":
+            if not _meta_server_base:
+                return [{"type": "text", "text": "未配置 AUTH_SERVER_BASE，无法连接 Meta Social 服务。"}], True
+            params_sync: Dict[str, Any] = {}
+            if args.get("account_id"):
+                params_sync["account_id"] = args["account_id"]
+            logger.info("[MCP] sync_meta_social_data params=%s", params_sync)
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                r = await client.post(
+                    f"{_meta_server_base}/api/meta-social/sync",
+                    headers=_backend_headers(token, request),
+                    params=params_sync,
+                )
+            data = r.json() if r.content else {}
+            text = json.dumps(data, ensure_ascii=False, indent=2)
+            return [{"type": "text", "text": text}], r.status_code >= 400
+
+        if name == "get_social_report":
+            if not _meta_server_base:
+                return [{"type": "text", "text": "未配置 AUTH_SERVER_BASE，无法连接 Meta Social 服务。"}], True
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.get(
+                    f"{_meta_server_base}/api/meta-social/data",
+                    headers=_backend_headers(token, request),
+                )
+            if r.status_code >= 400:
+                data = r.json() if r.content else {}
+                text = json.dumps(data, ensure_ascii=False, indent=2)
+                return [{"type": "text", "text": text}], True
+            all_data = r.json() if r.content else {}
+            entries = all_data.get("data", [])
+            if not entries:
+                return [{"type": "text", "text": json.dumps({"hint": "暂无已连接的 IG/FB 账号数据。请先连接账号并调用 sync_meta_social_data 同步数据。"}, ensure_ascii=False)}], False
+            report: Dict[str, Any] = {"platforms": {}, "summary": {}}
+            total_posts = total_likes = total_comments = 0
+            for entry in entries:
+                acct = entry.get("account", {})
+                plat = acct.get("platform", "unknown")
+                label = acct.get("label") or acct.get("username") or acct.get("page_name") or ""
+                posts = entry.get("posts", [])
+                metrics = entry.get("account_metrics", {})
+                plat_likes = sum(p.get("like_count", 0) or p.get("likes", 0) for p in posts)
+                plat_comments = sum(p.get("comments_count", 0) or p.get("comments", 0) for p in posts)
+                report["platforms"].setdefault(plat, []).append({
+                    "label": label,
+                    "post_count": len(posts),
+                    "likes": plat_likes,
+                    "comments": plat_comments,
+                    "account_metrics": metrics,
+                })
+                total_posts += len(posts)
+                total_likes += plat_likes
+                total_comments += plat_comments
+            report["summary"] = {"total_posts": total_posts, "total_likes": total_likes, "total_comments": total_comments}
+            text = json.dumps(report, ensure_ascii=False, indent=2)
+            return [{"type": "text", "text": text}], False
 
         if name == "open_account_browser":
             nickname = (args.get("account_nickname") or "").strip()

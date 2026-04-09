@@ -106,6 +106,37 @@ function _renderYoutubePublishCard(opts) {
     '<button type="button" class="btn btn-primary btn-sm youtube-publish-entry-btn">管理账号</button></div></div>';
 }
 
+function _renderMetaSocialCard(opts) {
+  opts = opts || {};
+  if (typeof EDITION === 'undefined' || EDITION !== 'online') return '';
+  var cnt = (typeof _metaSocialStatus !== 'undefined') ? (_metaSocialStatus.accounts_count || 0) : 0;
+  var statusBadge = cnt > 0
+    ? '<span class="badge-installed">已连接 ' + cnt + ' 个</span>'
+    : '<span class="badge-coming" style="background:rgba(251,146,60,0.15);color:#fb923c;border-color:rgba(251,146,60,0.3);">未连接</span>';
+  return '<div class="skill-store-card meta-social-card" style="cursor:pointer;border-color:rgba(225,48,108,0.35);background:linear-gradient(135deg,rgba(24,119,242,0.06),rgba(225,48,108,0.06));">' +
+    '<div class="card-label">发布 <span class="badge-installed">可配置</span> ' + statusBadge + '</div>' +
+    '<div class="card-value">Instagram / Facebook</div>' +
+    '<div class="card-desc">通过 Facebook OAuth 授权连接 IG Business 或 FB 主页；对话中可直接发布 photo / video / reel / story / carousel，也可拉取粉丝数据与互动指标。</div>' +
+    '<div class="card-tags"><span class="tag">Instagram</span><span class="tag">Facebook</span><span class="tag">OAuth</span></div>' +
+    '<div class="card-actions" style="display:flex;flex-wrap:wrap;gap:0.35rem;">' +
+    '<button type="button" class="btn btn-primary btn-sm meta-social-entry-btn">管理账号</button></div></div>';
+}
+
+function _bindMetaSocialCardEntry() {
+  document.querySelectorAll('.meta-social-card').forEach(function(card) {
+    card.addEventListener('click', function(e) {
+      if (e.target.closest('.card-actions')) return;
+      if (typeof window._openMetaSocialView === 'function') window._openMetaSocialView();
+    });
+  });
+  document.querySelectorAll('.meta-social-entry-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (typeof window._openMetaSocialView === 'function') window._openMetaSocialView();
+    });
+  });
+}
+
 function _renderTwilioWhatsappCard(opts) {
   opts = opts || {};
   if (typeof EDITION === 'undefined' || EDITION !== 'online') return '';
@@ -261,7 +292,7 @@ function loadSkillStore() {
       var needYoutube = packages.some(function(p) { return p.id === 'youtube_publish'; });
 
       function paintSkillStoreList() {
-        var html = _renderXSkillCard() + _renderComflyCard();
+        var html = _renderXSkillCard() + _renderComflyCard() + _renderMetaSocialCard();
         var hasWxPkg = packages.some(function(p) { return p.id === 'openclaw_weixin_channel'; });
         if (hasWxPkg) {
           var wxPkg = packages.filter(function(p) { return p.id === 'openclaw_weixin_channel'; })[0];
@@ -343,6 +374,7 @@ function loadSkillStore() {
         _bindMessengerCardEntry();
         _bindTwilioWhatsappCardEntry();
         _bindYoutubePublishCardEntry();
+        _bindMetaSocialCardEntry();
         _bindInstallUninstall(el);
         _bindXSkillConfigBtn();
         _bindComflyConfigBtn();
@@ -370,10 +402,17 @@ function loadSkillStore() {
 
       _loadXSkillStatus(function() {
         _loadComflyStatus(function() {
+          var afterYoutube = function() {
+            if (typeof _loadMetaSocialStatus === 'function') {
+              _loadMetaSocialStatus(finishRender);
+            } else {
+              finishRender();
+            }
+          };
           if (needYoutube && isSkillAdmin) {
-            _loadYoutubePublishStatus(finishRender);
+            _loadYoutubePublishStatus(afterYoutube);
           } else {
-            finishRender();
+            afterYoutube();
           }
         });
       });

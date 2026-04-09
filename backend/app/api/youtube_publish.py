@@ -27,6 +27,7 @@ from publisher.browser_pool import (
 )
 
 from ..services.youtube_api_upload import build_httpx_proxy_url, upload_local_video_file
+from ..services.youtube_analytics import sync_youtube_account_data
 from .auth import _ServerUser, get_current_user_for_local, require_skill_store_admin
 
 router = APIRouter()
@@ -37,6 +38,9 @@ _BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 _oauth_states: Dict[str, Dict[str, Any]] = {}
 _OAUTH_STATE_TTL_SEC = 600
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
+YOUTUBE_READONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
+YT_ANALYTICS_SCOPE = "https://www.googleapis.com/auth/yt-analytics.readonly"
+YOUTUBE_FULL_SCOPE = " ".join([YOUTUBE_UPLOAD_SCOPE, YOUTUBE_READONLY_SCOPE, YT_ANALYTICS_SCOPE])
 
 
 def _public_base_url() -> str:
@@ -452,7 +456,7 @@ async def youtube_account_oauth_start(
             "client_id": cid,
             "redirect_uri": redirect_uri,
             "response_type": "code",
-            "scope": YOUTUBE_UPLOAD_SCOPE,
+            "scope": YOUTUBE_FULL_SCOPE,
             "access_type": "offline",
             "prompt": "consent",
             "state": st,
@@ -888,3 +892,48 @@ def put_youtube_publish_schedule(
     db.commit()
     db.refresh(row)
     return _youtube_schedule_to_dict(row)
+
+
+# ── YouTube Analytics ──────────────────────────────────────────────────────
+
+
+@router.get("/api/youtube-publish/accounts/{account_id}/analytics")
+async def youtube_account_analytics(
+    account_id: str,
+    current_user: _ServerUser = Depends(require_skill_store_admin),
+):
+    doc = _load_doc(current_user.id)
+    accounts = doc.get("accounts", {})
+    if account_id not in accounts:
+        raise HTTPException(status_code=404, detail="YouTube 账号不存在")
+    ent = accounts[account_id]
+    if ent.get("status") != "ready":
+        raise HTTPException(status_code=400, detail="账号未完成授权")
+
+    proxy_url = build_httpx_proxy_url(ent) if ent.get("proxy_server") else None
+    try:
+        data = await sync_youtube_account_data(ent, proxy_url=proxy_url)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return data
+
+
+@router.post("/api/youtube-publish/accounts/{account_id}/sync-analytics")
+async def youtube_sync_analytics(
+    account_id: str,
+    current_user: _ServerUser = Depends(require_skill_store_admin),
+):
+    doc = _load_doc(current_user.id)
+    accounts = doc.get("accounts", {})
+    if account_id not in accounts:
+        raise HTTPException(status_code=404, detail="YouTube 账号不存在")
+    ent = accounts[account_id]
+    if ent.get("status") != "ready":
+        raise HTTPException(status_code=400, detail="账号未完成授权")
+
+    proxy_url = build_httpx_proxy_url(ent) if ent.get("proxy_server") else None
+    try:
+        data = await sync_youtube_account_data(ent, proxy_url=proxy_url)
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    return {"status": "synced", "data": data}

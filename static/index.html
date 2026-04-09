@@ -289,6 +289,31 @@
             </div>
           </div>
 
+          <!-- Meta Social（Instagram / Facebook 发布） -->
+          <div id="content-meta-social" class="content-block">
+            <div class="card">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
+                <h3 style="margin:0;">Instagram / Facebook</h3>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                  <button type="button" id="metaSocialBackBtn" class="btn btn-ghost btn-sm">← 返回技能商店</button>
+                  <button type="button" id="metaSocialRefreshBtn" class="btn btn-ghost btn-sm">刷新列表</button>
+                  <button type="button" id="metaSocialAddBtn" class="btn btn-primary btn-sm">+ 连接 Instagram / Facebook</button>
+                </div>
+              </div>
+              <p style="font-size:0.82rem;color:var(--text-muted);margin:0.75rem 0;line-height:1.55;">
+                通过 Facebook OAuth 授权连接你的 Instagram Business 或 Facebook 主页。
+                授权后可在对话中使用 <code>publish_meta_social</code> 发布内容，或用 <code>sync_meta_social_data</code> 拉取最新数据。
+                Instagram 支持 photo / video / reel / story / carousel；Facebook 支持 photo / video / link。
+              </p>
+              <div id="metaSocialPageMsg" class="msg" style="display:none;margin-bottom:0.75rem;"></div>
+              <div id="metaSocialAccountsList"></div>
+              <div class="section-divider" style="margin:1rem 0;"></div>
+              <div class="section-title" style="font-size:0.95rem;">数据概览</div>
+              <p style="font-size:0.78rem;color:var(--text-muted);margin:0 0 0.5rem 0;">已同步的帖子与指标；点击账号卡片上的「同步数据」可拉取最新。</p>
+              <div id="metaSocialDataView"></div>
+            </div>
+          </div>
+
           <!-- Messenger（海外 API，多 Facebook App） -->
           <div id="content-messenger-config" class="content-block">
             <div class="card">
@@ -1283,6 +1308,7 @@
   <script src="/static/js/skill.js"></script>
   <script src="/static/js/messenger-config.js"></script>
   <script src="/static/js/twilio-whatsapp-config.js"></script>
+  <script src="/static/js/meta-social.js"></script>
   <script src="/static/js/youtube-accounts.js"></script>
   <script src="/static/js/twilio-whatsapp-detail.js"></script>
   <script src="/static/js/wecom-config.js"></script>
