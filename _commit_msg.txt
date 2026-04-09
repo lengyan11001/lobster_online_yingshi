@@ -1,7 +1,0 @@
-fix: YouTube proxy bug, MCP carousel+fields, Meta schedules UI, analytics pagination
-
-- youtube_publish: fix build_httpx_proxy_url called with dict instead of 3 strings
-- youtube_analytics: paginate playlist videos beyond 50
-- mcp/http_server: forward carousel_items for Meta, add category/tags/material_origin for YouTube
-- meta-social.js: fix sync error handling, fix PATCH/DELETE URL, add schedules UI
-- index.html: add Meta schedules section
