@@ -19,11 +19,24 @@ import hashlib
 import json
 import os
 import shutil
+import ssl
 import tempfile
 import urllib.error
 import urllib.request
 import zipfile
 from pathlib import Path
+
+
+def _ssl_context() -> ssl.SSLContext:
+    """构建 SSL context：优先用 certifi 证书包，解决嵌入式 Python 无系统 CA 的问题。"""
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except ImportError:
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return ctx
 
 ROOT = Path(__file__).resolve().parent.parent
 VERSION_FILE = ROOT / "CLIENT_CODE_VERSION.json"
@@ -206,14 +219,14 @@ def _save_local_build(build: int, version_from_manifest: str | None = None) -> N
 
 def _fetch_json(url: str, timeout: int = 45) -> dict:
     req = urllib.request.Request(url, headers={"User-Agent": "LobsterClientCode/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
         raw = resp.read()
     return json.loads(raw.decode("utf-8"))
 
 
 def _download_file(url: str, dest: Path, timeout: int = 300) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "LobsterClientCode/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
         dest.write_bytes(resp.read())
 
 
