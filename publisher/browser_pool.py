@@ -111,6 +111,14 @@ def browser_options_from_youtube_proxy_fields(
     user = (proxy_username or "").strip() or (unquote(u.username) if u.username else "")
     pw = (proxy_password or "").strip() or (unquote(u.password) if u.password else "")
     server = f"{u.scheme}://{host}:{port}"
+
+    # Chromium / Playwright 不支持「带用户名密码的 SOCKS5」；经本机 HTTP 桥转发到上游 SOCKS5（见 socks_http_bridge）。
+    if u.scheme == "socks5" and user and pw:
+        from .socks_http_bridge import ensure_local_http_bridge
+
+        local_http = ensure_local_http_bridge(host, port, user, pw)
+        return {**base, "proxy": {"server": local_http}}
+
     pw_obj: Dict[str, Any] = {"server": server}
     if user or pw:
         if not user or not pw:
@@ -252,17 +260,27 @@ async def _acquire_context(
                 if _profile_active_key.get(profile_dir) == key:
                     _profile_active_key.pop(profile_dir, None)
 
+    # channel 优先级：opts 里显式指定 > 环境变量 > 自定义路径 > 默认 bundled Chromium
+    channel_override = opts.get("channel") or _BROWSER_CHANNEL or ""
+
     launch_kwargs: Dict[str, Any] = {
         "headless": bool(new_headless),
         "viewport": {"width": 1280, "height": 800},
         "locale": "zh-CN",
         "permissions": ["geolocation"],
-        "user_agent": opts["user_agent"],
+        "args": [
+            "--disable-blink-features=AutomationControlled",
+            "--disable-features=ThirdPartyCookieBlocking,SameSiteByDefaultCookies,CookiesWithoutSameSiteMustBeSecure",
+        ],
+        "ignore_default_args": ["--enable-automation"],
     }
+    # 使用真实 Chrome channel 时不覆盖 UA，让浏览器用自身真实 UA，减少指纹不匹配风险
+    if not channel_override:
+        launch_kwargs["user_agent"] = opts["user_agent"]
     if opts.get("proxy"):
         launch_kwargs["proxy"] = opts["proxy"]
-    if _BROWSER_CHANNEL:
-        launch_kwargs["channel"] = _BROWSER_CHANNEL
+    if channel_override:
+        launch_kwargs["channel"] = channel_override
     elif _CHROMIUM_PATH and Path(_CHROMIUM_PATH).exists():
         launch_kwargs["executable_path"] = _CHROMIUM_PATH
 
@@ -270,6 +288,12 @@ async def _acquire_context(
     ctx = await _pw_instance.chromium.launch_persistent_context(
         profile_dir, **launch_kwargs,
     )
+    try:
+        await ctx.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+        )
+    except Exception as e:
+        logger.debug("persistent context add_init_script: %s", e)
     async with _lock:
         _contexts[key] = ctx
         _context_headless[key] = bool(new_headless)
@@ -381,7 +405,11 @@ def _setup_auto_close(
     *,
     browser_options: Optional[Dict[str, Any]] = None,
 ):
-    """Register page close handler to release context when user closes window."""
+    """用户关闭窗口后释放池内 context。
+
+    Facebook / Meta OAuth 常会再开标签页或弹出「选图验证」窗口；若任一子页关闭就整 context.close()，
+    会清空持久化 Cookie，表现为「验证完又回到登录」循环。因此仅在**所有页面都关闭**后再释放。
+    """
     opts = (
         browser_options
         if browser_options is not None
@@ -389,7 +417,7 @@ def _setup_auto_close(
     )
     sk = _storage_key(profile_dir, opts)
 
-    async def _close_ctx():
+    async def _close_pool():
         try:
             await ctx.close()
         except Exception:
@@ -403,8 +431,63 @@ def _setup_auto_close(
                         _profile_active_key.pop(profile_dir, None)
         except Exception:
             pass
+
+    async def _maybe_close_after_last_page() -> None:
+        await asyncio.sleep(0.35)
+        try:
+            n = len(ctx.pages)
+        except Exception:
+            n = 0
+        if n > 0:
+            logger.info(
+                "[BROWSER] 某标签已关闭，仍有 %s 个页面，保留会话与 Cookie（profile …%s）",
+                n,
+                str(profile_dir)[-50:],
+            )
+            return
+        logger.info("[BROWSER] 所有页面已关闭，释放 context（profile …%s）", str(profile_dir)[-50:])
+        await _close_pool()
+
+    def _schedule_maybe_close() -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                return
+        try:
+            loop.create_task(_maybe_close_after_last_page())
+        except Exception:
+            pass
+
+    wired: set = getattr(ctx, "_lobster_wired_page_ids", None)
+    if wired is None:
+        wired = set()
+        setattr(ctx, "_lobster_wired_page_ids", wired)
+
+    def _wire_page_once(p: Any) -> None:
+        try:
+            pid = id(p)
+            if pid in wired:
+                return
+            wired.add(pid)
+            p.on("close", lambda _p=None: _schedule_maybe_close())
+        except Exception:
+            pass
+
+    _wire_page_once(page)
+    if getattr(ctx, "_lobster_auto_close_registered", False):
+        return
+    setattr(ctx, "_lobster_auto_close_registered", True)
+
     try:
-        page.on("close", lambda: asyncio.create_task(_close_ctx()))
+        for p in list(getattr(ctx, "pages", []) or []):
+            _wire_page_once(p)
+    except Exception:
+        pass
+    try:
+        ctx.on("page", lambda p: _wire_page_once(p))
     except Exception:
         pass
 
@@ -491,11 +574,13 @@ async def open_url_in_persistent_chromium(
 ) -> Dict[str, Any]:
     """在持久化 Chromium 中打开任意 URL（无平台 driver）。用于 YouTube OAuth 等与发布同源固定浏览器。"""
     opts = browser_options if browser_options is not None else _default_browser_options()
-    await _ensure_visible_interactive_context(profile_dir, browser_options=opts)
-    ctx, created_new = await _acquire_context(
-        profile_dir, new_headless=False, browser_options=opts
-    )
+    ctx: Any = None
+    created_new = False
     try:
+        await _ensure_visible_interactive_context(profile_dir, browser_options=opts)
+        ctx, created_new = await _acquire_context(
+            profile_dir, new_headless=False, browser_options=opts
+        )
         page, ctx = await _get_page_with_reacquire(profile_dir, ctx, browser_options=opts)
         await page.goto(
             url,
@@ -518,8 +603,11 @@ async def open_url_in_persistent_chromium(
         }
     except Exception as e:
         logger.exception("open_url_in_persistent_chromium failed")
-        if created_new:
-            await _drop_cached_context(profile_dir, ctx, browser_options=opts)
+        if created_new and ctx is not None:
+            try:
+                await _drop_cached_context(profile_dir, ctx, browser_options=opts)
+            except Exception:
+                pass
         return {"ok": False, "message": str(e)}
 
 

@@ -1,6 +1,6 @@
 {
-  "version": "1.0.8",
-  "build": 14,
-  "applied_at": "2026-04-09T10:30:00.000Z",
-  "note": "Meta Social (IG/FB) 发布 + YouTube 数据分析 + Twilio WA 轮询优化 + 电商上架方案"
+  "version": "1.0.9",
+  "build": 15,
+  "applied_at": "2026-04-10T06:00:00.000Z",
+  "note": "Meta OAuth 原生Chrome + SSL certifi修复 + OTA .env保留升级路径"
 }

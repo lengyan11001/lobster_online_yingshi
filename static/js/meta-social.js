@@ -137,9 +137,16 @@
               showMsg(document.getElementById('metaSocialPageMsg'), '已打开 Facebook 授权页面。完成后请刷新列表。', false);
               return;
             }
+            var blkReauth = localMetaApiBlockedReason();
+            if (blkReauth) {
+              btn.disabled = false;
+              window.open(d.login_url, '_blank');
+              showMsg(document.getElementById('metaSocialPageMsg'), blkReauth + ' 已用系统浏览器打开授权页（无法使用本机 Chromium 代理时）。', true);
+              return;
+            }
             var acct = _accounts.filter(function (a) { return a.id === parseInt(aid, 10); })[0];
             var proxyServer = _buildProxyServer();
-            fetch(local + '/api/meta-social-local/oauth/open-chromium-url', {
+            fetch(localFetchUrl('/api/meta-social-local/oauth/open-chromium-url'), {
               method: 'POST',
               headers: hdrs(),
               body: JSON.stringify({ login_url: d.login_url, proxy_server: proxyServer.trim() })
@@ -154,10 +161,10 @@
                   showMsg(document.getElementById('metaSocialPageMsg'), 'Chromium 未能启动，已用浏览器打开。完成后请刷新列表。', false);
                 }
               })
-              .catch(function () {
+              .catch(function (e) {
                 btn.disabled = false;
                 window.open(d.login_url, '_blank');
-                showMsg(document.getElementById('metaSocialPageMsg'), '已打开 Facebook 授权页面。完成后请刷新列表。', false);
+                showMsg(document.getElementById('metaSocialPageMsg'), explainLocalFetchError(e) + ' 已用系统浏览器打开授权页。', true);
               });
           })
           .catch(function (e) {
@@ -228,6 +235,42 @@
       : '';
   }
 
+  /** 与本页 origin 一致时用相对路径 /api/...，避免 LOCAL_API_BASE 与真实端口不一致 */
+  function localFetchUrl(path) {
+    var base = localBase();
+    var p = path.indexOf('/') === 0 ? path : ('/' + path);
+    if (!base) return p;
+    try {
+      if (window.location && window.location.origin === base) {
+        return p;
+      }
+    } catch (e) {}
+    return base + p;
+  }
+
+  /** HTTPS 页面无法 fetch 本机 http://（混合内容）→ 浏览器只报 Failed to fetch */
+  function localMetaApiBlockedReason() {
+    var base = localBase();
+    if (!base) {
+      return '未配置 LOCAL_API_BASE。请在本机运行 lobster_online（backend/run.py）后，用 http://127.0.0.1:8000 打开本页。';
+    }
+    try {
+      var loc = window.location;
+      if (loc && loc.protocol === 'https:' && /^http:\/\//i.test(base)) {
+        return '当前为 HTTPS 页面，浏览器会拦截对本机 http 接口的请求（混合内容），表现为「Failed to fetch」。请改用 http://127.0.0.1:8000（或你的本机端口）在地址栏直接打开本页。';
+      }
+    } catch (e) {}
+    return '';
+  }
+
+  function explainLocalFetchError(e) {
+    var m = (e && e.message) ? String(e.message) : '未知错误';
+    if (m === 'Failed to fetch' || m.indexOf('NetworkError') !== -1 || m.indexOf('Load failed') !== -1) {
+      return '无法连接本机接口：① 确认已运行 backend/run.py；② 若从 https 页面访问 http://127.0.0.1 会被拦截，请用 http 打开本页；③ 核对端口与 LOCAL_API_BASE 一致。';
+    }
+    return m;
+  }
+
   var _DRAFT_KEY = '_meta_social_draft';
 
   function _saveDraft() {
@@ -235,6 +278,7 @@
       var d = {
         app_id: (document.getElementById('metaAppIdInput') || {}).value || '',
         app_secret: (document.getElementById('metaAppSecretInput') || {}).value || '',
+        proxy_protocol: (document.getElementById('metaProxyProtocolSelect') || {}).value || 'http',
         proxy_ip: (document.getElementById('metaProxyIpInput') || {}).value || '',
         proxy_port: (document.getElementById('metaProxyPortInput') || {}).value || '',
         proxy_user: (document.getElementById('metaProxyUserInput') || {}).value || '',
@@ -261,32 +305,38 @@
         var el = document.getElementById(f[0]);
         if (el && d[f[1]]) el.value = d[f[1]];
       });
+      var selProto = document.getElementById('metaProxyProtocolSelect');
+      if (selProto && d.proxy_protocol) selProto.value = d.proxy_protocol;
     } catch (e) {}
   }
 
   function _bindDraftAutoSave() {
-    ['metaAppIdInput', 'metaAppSecretInput', 'metaProxyIpInput', 'metaProxyPortInput', 'metaProxyUserInput', 'metaProxyPassInput'].forEach(function (id) {
+    ['metaAppIdInput', 'metaAppSecretInput', 'metaProxyProtocolSelect', 'metaProxyIpInput', 'metaProxyPortInput', 'metaProxyUserInput', 'metaProxyPassInput'].forEach(function (id) {
       var el = document.getElementById(id);
       if (el && !el._draftBound) {
         el._draftBound = true;
-        el.addEventListener('input', _saveDraft);
+        el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', _saveDraft);
       }
     });
   }
 
   function _buildProxyServer() {
+    var proto = (document.getElementById('metaProxyProtocolSelect') || {}).value || 'http';
     var ip = (document.getElementById('metaProxyIpInput') || {}).value || '';
     var port = (document.getElementById('metaProxyPortInput') || {}).value || '';
     ip = ip.trim();
     port = port.trim();
     if (!ip) return '';
-    if (!port) return 'http://' + ip;
-    return 'http://' + ip + ':' + port;
+    if (!port) return proto + '://' + ip;
+    return proto + '://' + ip + ':' + port;
   }
 
   function startOAuthWithCredentials() {
-    var local = localBase();
-    if (!local) { alert('未配置本地服务器地址'); return; }
+    var blocked = localMetaApiBlockedReason();
+    if (blocked) {
+      showMsg(document.getElementById('metaSocialPageMsg'), blocked, true);
+      return;
+    }
     var appId = (document.getElementById('metaAppIdInput') || {}).value || '';
     var appSecret = (document.getElementById('metaAppSecretInput') || {}).value || '';
     if (!appId.trim() || !appSecret.trim()) {
@@ -307,7 +357,7 @@
     };
 
     showMsg(document.getElementById('metaSocialPageMsg'), '正在启动 Chromium 打开授权页…', false);
-    fetch(local + '/api/meta-social-local/oauth/open-chromium', {
+    fetch(localFetchUrl('/api/meta-social-local/oauth/open-chromium'), {
       method: 'POST',
       headers: hdrs(),
       body: JSON.stringify(body)
@@ -331,7 +381,7 @@
         }
       })
       .catch(function (e) {
-        showMsg(document.getElementById('metaSocialPageMsg'), '启动失败: ' + e.message, true);
+        showMsg(document.getElementById('metaSocialPageMsg'), '启动失败: ' + explainLocalFetchError(e), true);
       });
   }
 
@@ -373,15 +423,18 @@
     if (proxyBrowserBtn && !proxyBrowserBtn._bound) {
       proxyBrowserBtn._bound = true;
       proxyBrowserBtn.addEventListener('click', function () {
-        var local = localBase();
-        if (!local) { alert('未配置本地服务器地址'); return; }
+        var blocked = localMetaApiBlockedReason();
+        if (blocked) {
+          showMsg(document.getElementById('metaSocialPageMsg'), blocked, true);
+          return;
+        }
         var proxyServer = _buildProxyServer();
         var proxyUser = (document.getElementById('metaProxyUserInput') || {}).value || '';
         var proxyPass = (document.getElementById('metaProxyPassInput') || {}).value || '';
         _saveDraft();
         showMsg(document.getElementById('metaSocialPageMsg'), '正在启动代理浏览器…', false);
         proxyBrowserBtn.disabled = true;
-        fetch(local + '/api/meta-social-local/open-proxy-browser', {
+        fetch(localFetchUrl('/api/meta-social-local/open-proxy-browser'), {
           method: 'POST',
           headers: hdrs(),
           body: JSON.stringify({
@@ -405,7 +458,65 @@
           })
           .catch(function (e) {
             proxyBrowserBtn.disabled = false;
-            showMsg(document.getElementById('metaSocialPageMsg'), '启动失败: ' + e.message, true);
+            showMsg(document.getElementById('metaSocialPageMsg'), '启动失败: ' + explainLocalFetchError(e), true);
+          });
+      });
+    }
+
+    var testProxyBtn = document.getElementById('metaTestProxyBtn');
+    if (testProxyBtn && !testProxyBtn._bound) {
+      testProxyBtn._bound = true;
+      testProxyBtn.addEventListener('click', function () {
+        var blocked = localMetaApiBlockedReason();
+        if (blocked) {
+          showMsg(document.getElementById('metaSocialPageMsg'), blocked, true);
+          return;
+        }
+        var proxyServer = _buildProxyServer();
+        if (!proxyServer) {
+          showMsg(document.getElementById('metaSocialPageMsg'), '请填写代理 IP 和端口', true);
+          return;
+        }
+        var proxyUser = (document.getElementById('metaProxyUserInput') || {}).value || '';
+        var proxyPass = (document.getElementById('metaProxyPassInput') || {}).value || '';
+        _saveDraft();
+        showMsg(document.getElementById('metaSocialPageMsg'), '正在测试代理连通性…', false);
+        testProxyBtn.disabled = true;
+        fetch(localFetchUrl('/api/meta-social-local/test-proxy'), {
+          method: 'POST',
+          headers: hdrs(),
+          body: JSON.stringify({
+            proxy_server: proxyServer.trim(),
+            proxy_username: proxyUser.trim(),
+            proxy_password: proxyPass.trim()
+          })
+        })
+          .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+          .then(function (x) {
+            testProxyBtn.disabled = false;
+            if (!x.ok) {
+              showMsg(document.getElementById('metaSocialPageMsg'), '测试失败: ' + (x.d.detail || JSON.stringify(x.d)), true);
+              return;
+            }
+            if (x.d.success) {
+              var okMsg = '代理连通 ✓  出口IP: ' + (x.d.ip || '未知') + '  延迟: ' + (x.d.latency_ms || '?') + 'ms';
+              if (x.d.hint) okMsg += '  ' + x.d.hint;
+              if (x.d.auto_detected_scheme) {
+                var selProto = document.getElementById('metaProxyProtocolSelect');
+                if (selProto && (x.d.auto_detected_scheme === 'http' || x.d.auto_detected_scheme === 'socks5')) {
+                  selProto.value = x.d.auto_detected_scheme === 'socks5' ? 'socks5' : 'http';
+                  _saveDraft();
+                }
+              }
+              showMsg(document.getElementById('metaSocialPageMsg'), okMsg, false);
+            } else {
+              showMsg(document.getElementById('metaSocialPageMsg'),
+                '代理不通: ' + (x.d.error || '连接失败') + (x.d.hint ? '  建议: ' + x.d.hint : ''), true);
+            }
+          })
+          .catch(function (e) {
+            testProxyBtn.disabled = false;
+            showMsg(document.getElementById('metaSocialPageMsg'), '测试失败: ' + explainLocalFetchError(e), true);
           });
       });
     }

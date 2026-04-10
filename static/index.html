@@ -330,6 +330,13 @@
                   </div>
                 </div>
                 <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+                  <div style="flex:0 0 100px;">
+                    <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">协议</label>
+                    <select id="metaProxyProtocolSelect" class="input" style="width:100%;font-size:0.85rem;">
+                      <option value="http">HTTP</option>
+                      <option value="socks5">SOCKS5</option>
+                    </select>
+                  </div>
                   <div style="flex:1;min-width:140px;">
                     <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">代理 IP <span style="opacity:0.6;">(可选)</span></label>
                     <input type="text" id="metaProxyIpInput" class="input" placeholder="例: 195.86.229.84" style="width:100%;font-size:0.85rem;">
@@ -349,6 +356,7 @@
                 </div>
                 <button type="button" id="metaSocialConnectBtn" class="btn btn-primary btn-sm">授权连接</button>
                 <button type="button" id="metaOpenProxyBrowserBtn" class="btn btn-ghost btn-sm" style="margin-left:0.5rem;">打开代理浏览器</button>
+                <button type="button" id="metaTestProxyBtn" class="btn btn-ghost btn-sm" style="margin-left:0.5rem;">测试代理</button>
               </div>
 
               <div id="metaSocialPageMsg" class="msg" style="display:none;margin-bottom:0.75rem;"></div>

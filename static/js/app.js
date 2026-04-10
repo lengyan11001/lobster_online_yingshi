@@ -2,9 +2,16 @@
 var LOBSTER_SERVER_PUBLIC = 'https://api.51ins.com';
 
 (function setApiBaseFromUrl() {
-  // 定死：本机回环端口与当前页端口一致（默认 8000）
-  var lp = (window.location && window.location.port) ? window.location.port : '8000';
-  var LOBSTER_LOCAL_LOOPBACK = 'http://127.0.0.1:' + lp;
+  // 本机回环：优先用当前页 origin（含真实端口）。port 为空时（如默认 80）不能误写成 :8000，否则会连错端口 → Failed to fetch
+  var loc = window.location;
+  var loopbackOrigin = '';
+  try {
+    if (loc && loc.hostname && /^(localhost|127\.0\.0\.1)$/i.test(loc.hostname) && /^https?:/i.test(loc.protocol || '')) {
+      loopbackOrigin = (loc.origin || '').replace(/\/$/, '');
+    }
+  } catch (e) {}
+  var lp = (loc && loc.port) ? loc.port : '';
+  var LOBSTER_LOCAL_LOOPBACK = loopbackOrigin || ('http://127.0.0.1:' + (lp || '8000'));
 
   // 本机打开页面（localhost/127）→ API 仍走公网服务器；?api= / localStorage 可覆盖
   var isLoopbackHost = /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(window.location.host || '');

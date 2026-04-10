@@ -67,8 +67,8 @@ def build_httplib2_http_for_proxy(
         return _configure_httplib2_for_google_resumable_upload(httplib2.Http())
 
     u = urlparse(raw)
-    if u.scheme not in ("http", "https"):
-        raise ValueError("代理地址须以 http:// 或 https:// 开头，例如 http://1.2.3.4:8080")
+    if u.scheme not in ("http", "https", "socks5"):
+        raise ValueError("代理地址须以 http://、https:// 或 socks5:// 开头")
 
     host = u.hostname
     if not host:
@@ -106,8 +106,8 @@ def build_httpx_proxy_url(
     if not raw:
         return None
     u = urlparse(raw)
-    if u.scheme not in ("http", "https"):
-        raise ValueError("代理地址须以 http:// 或 https:// 开头，例如 http://1.2.3.4:8080")
+    if u.scheme not in ("http", "https", "socks5"):
+        raise ValueError("代理地址须以 http://、https:// 或 socks5:// 开头")
     host = u.hostname
     if not host:
         raise ValueError("代理 URL 中缺少主机名")
