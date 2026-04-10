@@ -223,8 +223,8 @@
   // ── New OAuth with user-provided App credentials ──
 
   function localBase() {
-    return (typeof API_BASE !== 'undefined' && API_BASE)
-      ? String(API_BASE).replace(/\/$/, '')
+    return (typeof LOCAL_API_BASE !== 'undefined' && LOCAL_API_BASE)
+      ? String(LOCAL_API_BASE).replace(/\/$/, '')
       : '';
   }
 
