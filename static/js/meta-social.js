@@ -138,7 +138,7 @@
               return;
             }
             var acct = _accounts.filter(function (a) { return a.id === parseInt(aid, 10); })[0];
-            var proxyServer = (document.getElementById('metaProxyServerInput') || {}).value || '';
+            var proxyServer = _buildProxyServer();
             fetch(local + '/api/meta-social-local/oauth/open-chromium-url', {
               method: 'POST',
               headers: hdrs(),
@@ -228,6 +228,62 @@
       : '';
   }
 
+  var _DRAFT_KEY = '_meta_social_draft';
+
+  function _saveDraft() {
+    try {
+      var d = {
+        app_id: (document.getElementById('metaAppIdInput') || {}).value || '',
+        app_secret: (document.getElementById('metaAppSecretInput') || {}).value || '',
+        proxy_ip: (document.getElementById('metaProxyIpInput') || {}).value || '',
+        proxy_port: (document.getElementById('metaProxyPortInput') || {}).value || '',
+        proxy_user: (document.getElementById('metaProxyUserInput') || {}).value || '',
+        proxy_pass: (document.getElementById('metaProxyPassInput') || {}).value || ''
+      };
+      localStorage.setItem(_DRAFT_KEY, JSON.stringify(d));
+    } catch (e) {}
+  }
+
+  function _loadDraft() {
+    try {
+      var raw = localStorage.getItem(_DRAFT_KEY);
+      if (!raw) return;
+      var d = JSON.parse(raw);
+      var fields = [
+        ['metaAppIdInput', 'app_id'],
+        ['metaAppSecretInput', 'app_secret'],
+        ['metaProxyIpInput', 'proxy_ip'],
+        ['metaProxyPortInput', 'proxy_port'],
+        ['metaProxyUserInput', 'proxy_user'],
+        ['metaProxyPassInput', 'proxy_pass']
+      ];
+      fields.forEach(function (f) {
+        var el = document.getElementById(f[0]);
+        if (el && d[f[1]]) el.value = d[f[1]];
+      });
+    } catch (e) {}
+  }
+
+  function _bindDraftAutoSave() {
+    ['metaAppIdInput', 'metaAppSecretInput', 'metaProxyIpInput', 'metaProxyPortInput', 'metaProxyUserInput', 'metaProxyPassInput'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el && !el._draftBound) {
+        el._draftBound = true;
+        el.addEventListener('input', _saveDraft);
+      }
+    });
+  }
+
+  function _buildProxyServer() {
+    var ip = (document.getElementById('metaProxyIpInput') || {}).value || '';
+    var port = (document.getElementById('metaProxyPortInput') || {}).value || '';
+    ip = ip.trim();
+    port = port.trim();
+    if (!ip) return '';
+    if (!port) return 'http://' + ip;
+    return 'http://' + ip + ':' + port;
+  }
+
   function startOAuthWithCredentials() {
     var local = localBase();
     if (!local) { alert('未配置本地服务器地址'); return; }
@@ -237,14 +293,15 @@
       showMsg(document.getElementById('metaSocialPageMsg'), '请填写 Facebook App ID 和 App Secret。', true);
       return;
     }
-    var proxyServer = (document.getElementById('metaProxyServerInput') || {}).value || '';
+    var proxyServer = _buildProxyServer();
     var proxyUser = (document.getElementById('metaProxyUserInput') || {}).value || '';
     var proxyPass = (document.getElementById('metaProxyPassInput') || {}).value || '';
+    _saveDraft();
 
     var body = {
       app_id: appId.trim(),
       app_secret: appSecret.trim(),
-      proxy_server: proxyServer.trim(),
+      proxy_server: proxyServer,
       proxy_username: proxyUser.trim(),
       proxy_password: proxyPass.trim()
     };
@@ -281,6 +338,8 @@
   // ── Page init ──
 
   function loadMetaSocialPage() {
+    _loadDraft();
+    _bindDraftAutoSave();
     renderAccountList();
     loadRedirectUri();
 
@@ -316,9 +375,10 @@
       proxyBrowserBtn.addEventListener('click', function () {
         var local = localBase();
         if (!local) { alert('未配置本地服务器地址'); return; }
-        var proxyServer = (document.getElementById('metaProxyServerInput') || {}).value || '';
+        var proxyServer = _buildProxyServer();
         var proxyUser = (document.getElementById('metaProxyUserInput') || {}).value || '';
         var proxyPass = (document.getElementById('metaProxyPassInput') || {}).value || '';
+        _saveDraft();
         showMsg(document.getElementById('metaSocialPageMsg'), '正在启动代理浏览器…', false);
         proxyBrowserBtn.disabled = true;
         fetch(local + '/api/meta-social-local/open-proxy-browser', {

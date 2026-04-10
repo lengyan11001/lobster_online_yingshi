@@ -330,16 +330,20 @@
                   </div>
                 </div>
                 <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem;">
-                  <div style="flex:1;min-width:200px;">
-                    <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">静态 IP 代理 <span style="opacity:0.6;">(可选)</span></label>
-                    <input type="text" id="metaProxyServerInput" class="input" placeholder="http://静态IP:端口" style="width:100%;font-size:0.85rem;">
+                  <div style="flex:1;min-width:140px;">
+                    <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">代理 IP <span style="opacity:0.6;">(可选)</span></label>
+                    <input type="text" id="metaProxyIpInput" class="input" placeholder="例: 195.86.229.84" style="width:100%;font-size:0.85rem;">
                   </div>
-                  <div style="flex:0.5;min-width:120px;">
-                    <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">代理用户名 <span style="opacity:0.6;">(可选)</span></label>
+                  <div style="flex:0 0 90px;">
+                    <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">端口</label>
+                    <input type="text" id="metaProxyPortInput" class="input" placeholder="51888" style="width:100%;font-size:0.85rem;">
+                  </div>
+                  <div style="flex:0.5;min-width:100px;">
+                    <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">用户名 <span style="opacity:0.6;">(可选)</span></label>
                     <input type="text" id="metaProxyUserInput" class="input" placeholder="用户名" style="width:100%;font-size:0.85rem;">
                   </div>
-                  <div style="flex:0.5;min-width:120px;">
-                    <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">代理密码 <span style="opacity:0.6;">(可选)</span></label>
+                  <div style="flex:0.5;min-width:100px;">
+                    <label style="font-size:0.8rem;color:var(--text-muted);display:block;margin-bottom:0.2rem;">密码 <span style="opacity:0.6;">(可选)</span></label>
                     <input type="password" id="metaProxyPassInput" class="input" placeholder="密码" style="width:100%;font-size:0.85rem;">
                   </div>
                 </div>
