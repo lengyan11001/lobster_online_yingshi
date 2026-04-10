@@ -114,20 +114,51 @@
     document.querySelectorAll('.meta-social-reauth-btn').forEach(function (btn) {
       btn.addEventListener('click', function () {
         var aid = btn.getAttribute('data-id');
-        var token = jwtToken();
-        var url = serverBase() + '/api/meta-social/accounts/' + aid + '/reauth';
-        if (token) url += '?token=' + encodeURIComponent(token);
+        var local = localBase();
+        var base = serverBase();
         btn.disabled = true;
-        fetch(url, { headers: hdrs() })
+        showMsg(document.getElementById('metaSocialPageMsg'), '正在启动 Chromium 重新授权…', false);
+
+        var token = jwtToken();
+        var reauthUrl = base + '/api/meta-social/accounts/' + aid + '/reauth';
+        if (token) reauthUrl += '?token=' + encodeURIComponent(token);
+
+        fetch(reauthUrl, { headers: hdrs() })
           .then(function (r) { return r.json(); })
           .then(function (d) {
-            btn.disabled = false;
-            if (d && d.login_url) {
+            if (!d || !d.login_url) {
+              btn.disabled = false;
+              showMsg(document.getElementById('metaSocialPageMsg'), '重新授权失败: ' + (d.detail || JSON.stringify(d)), true);
+              return;
+            }
+            if (!local) {
+              btn.disabled = false;
               window.open(d.login_url, '_blank');
               showMsg(document.getElementById('metaSocialPageMsg'), '已打开 Facebook 授权页面。完成后请刷新列表。', false);
-            } else {
-              showMsg(document.getElementById('metaSocialPageMsg'), '重新授权失败: ' + (d.detail || JSON.stringify(d)), true);
+              return;
             }
+            var acct = _accounts.filter(function (a) { return a.id === parseInt(aid, 10); })[0];
+            var proxyServer = (document.getElementById('metaProxyServerInput') || {}).value || '';
+            fetch(local + '/api/meta-social-local/oauth/open-chromium-url', {
+              method: 'POST',
+              headers: hdrs(),
+              body: JSON.stringify({ login_url: d.login_url, proxy_server: proxyServer.trim() })
+            })
+              .then(function (r2) { return r2.json(); })
+              .then(function (d2) {
+                btn.disabled = false;
+                if (d2.chromium_opened) {
+                  showMsg(document.getElementById('metaSocialPageMsg'), '已在 Chromium 中打开重新授权页。完成后请刷新列表。', false);
+                } else {
+                  window.open(d.login_url, '_blank');
+                  showMsg(document.getElementById('metaSocialPageMsg'), 'Chromium 未能启动，已用浏览器打开。完成后请刷新列表。', false);
+                }
+              })
+              .catch(function () {
+                btn.disabled = false;
+                window.open(d.login_url, '_blank');
+                showMsg(document.getElementById('metaSocialPageMsg'), '已打开 Facebook 授权页面。完成后请刷新列表。', false);
+              });
           })
           .catch(function (e) {
             btn.disabled = false;
@@ -191,9 +222,15 @@
 
   // ── New OAuth with user-provided App credentials ──
 
+  function localBase() {
+    return (typeof API_BASE !== 'undefined' && API_BASE)
+      ? String(API_BASE).replace(/\/$/, '')
+      : '';
+  }
+
   function startOAuthWithCredentials() {
-    var base = serverBase();
-    if (!base) { alert('未配置服务器地址'); return; }
+    var local = localBase();
+    if (!local) { alert('未配置本地服务器地址'); return; }
     var appId = (document.getElementById('metaAppIdInput') || {}).value || '';
     var appSecret = (document.getElementById('metaAppSecretInput') || {}).value || '';
     if (!appId.trim() || !appSecret.trim()) {
@@ -203,28 +240,41 @@
     var proxyServer = (document.getElementById('metaProxyServerInput') || {}).value || '';
     var proxyUser = (document.getElementById('metaProxyUserInput') || {}).value || '';
     var proxyPass = (document.getElementById('metaProxyPassInput') || {}).value || '';
-    var token = jwtToken();
-    var url = base + '/api/meta-social/oauth/start?app_id=' + encodeURIComponent(appId.trim())
-      + '&app_secret=' + encodeURIComponent(appSecret.trim());
-    if (proxyServer.trim()) url += '&proxy_server=' + encodeURIComponent(proxyServer.trim());
-    if (proxyUser.trim()) url += '&proxy_username=' + encodeURIComponent(proxyUser.trim());
-    if (proxyPass.trim()) url += '&proxy_password=' + encodeURIComponent(proxyPass.trim());
-    if (token) url += '&token=' + encodeURIComponent(token);
-    showMsg(document.getElementById('metaSocialPageMsg'), '正在获取授权链接…', false);
-    fetch(url, { headers: hdrs() })
+
+    var body = {
+      app_id: appId.trim(),
+      app_secret: appSecret.trim(),
+      proxy_server: proxyServer.trim(),
+      proxy_username: proxyUser.trim(),
+      proxy_password: proxyPass.trim()
+    };
+
+    showMsg(document.getElementById('metaSocialPageMsg'), '正在启动 Chromium 打开授权页…', false);
+    fetch(local + '/api/meta-social-local/oauth/open-chromium', {
+      method: 'POST',
+      headers: hdrs(),
+      body: JSON.stringify(body)
+    })
       .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
       .then(function (x) {
         if (!x.ok) {
-          showMsg(document.getElementById('metaSocialPageMsg'), '获取授权链接失败: ' + (x.d.detail || JSON.stringify(x.d)), true);
+          showMsg(document.getElementById('metaSocialPageMsg'), '启动失败: ' + (x.d.detail || JSON.stringify(x.d)), true);
           return;
         }
-        if (x.d && x.d.login_url) {
-          window.open(x.d.login_url, '_blank');
-          showMsg(document.getElementById('metaSocialPageMsg'), '已打开 Facebook 授权页面。授权完成后请点击「刷新列表」。', false);
+        if (x.d.chromium_opened) {
+          showMsg(document.getElementById('metaSocialPageMsg'), '已在 Chromium 中打开 Facebook 授权页（带代理）。授权完成后请点击「刷新列表」。', false);
+        } else {
+          var msg = 'Chromium 启动失败';
+          if (x.d.chromium_message) msg += ': ' + x.d.chromium_message;
+          if (x.d.login_url) {
+            msg += '。已回退为浏览器打开。';
+            window.open(x.d.login_url, '_blank');
+          }
+          showMsg(document.getElementById('metaSocialPageMsg'), msg, !x.d.login_url);
         }
       })
       .catch(function (e) {
-        showMsg(document.getElementById('metaSocialPageMsg'), '获取授权链接失败: ' + e.message, true);
+        showMsg(document.getElementById('metaSocialPageMsg'), '启动失败: ' + e.message, true);
       });
   }
 
