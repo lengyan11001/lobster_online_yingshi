@@ -123,6 +123,49 @@ async def meta_social_local_open_chromium(
     }
 
 
+class MetaOpenProxyBrowserBody(BaseModel):
+    proxy_server: str = ""
+    proxy_username: str = ""
+    proxy_password: str = ""
+    url: str = "https://developers.facebook.com/apps/"
+
+
+@router.post("/api/meta-social-local/open-proxy-browser")
+async def meta_social_open_proxy_browser(
+    body: MetaOpenProxyBrowserBody,
+    current_user: _ServerUser = Depends(get_current_user_for_local),
+    _admin: None = Depends(require_skill_store_admin),
+):
+    """打开带代理的 Chromium 浏览器，默认访问 Facebook 开发者页面。
+
+    用于在固定 IP 下完成创建 App、配置权限等操作，
+    确保所有操作都走同一个 IP。
+    """
+    ps = (body.proxy_server or "").strip()
+    pu = (body.proxy_username or "").strip()
+    pp = (body.proxy_password or "").strip()
+
+    try:
+        bopts = browser_options_from_youtube_proxy_fields(
+            ps or None, pu or None, pp or None,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=f"代理配置错误: {e}")
+
+    target_url = (body.url or "").strip() or "https://developers.facebook.com/apps/"
+
+    prof_root = _BASE_DIR / "browser_data"
+    prof_root.mkdir(parents=True, exist_ok=True)
+    profile_dir = str(prof_root / "meta_oauth")
+
+    launch_res = await open_url_in_persistent_chromium(profile_dir, target_url, bopts)
+
+    return {
+        "chromium_opened": bool(launch_res.get("ok")),
+        "chromium_message": str(launch_res.get("message") or ""),
+    }
+
+
 class MetaOAuthOpenUrlBody(BaseModel):
     login_url: str
     proxy_server: str = ""

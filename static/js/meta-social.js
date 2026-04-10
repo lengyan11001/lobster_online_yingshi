@@ -310,6 +310,46 @@
       });
     }
 
+    var proxyBrowserBtn = document.getElementById('metaOpenProxyBrowserBtn');
+    if (proxyBrowserBtn && !proxyBrowserBtn._bound) {
+      proxyBrowserBtn._bound = true;
+      proxyBrowserBtn.addEventListener('click', function () {
+        var local = localBase();
+        if (!local) { alert('未配置本地服务器地址'); return; }
+        var proxyServer = (document.getElementById('metaProxyServerInput') || {}).value || '';
+        var proxyUser = (document.getElementById('metaProxyUserInput') || {}).value || '';
+        var proxyPass = (document.getElementById('metaProxyPassInput') || {}).value || '';
+        showMsg(document.getElementById('metaSocialPageMsg'), '正在启动代理浏览器…', false);
+        proxyBrowserBtn.disabled = true;
+        fetch(local + '/api/meta-social-local/open-proxy-browser', {
+          method: 'POST',
+          headers: hdrs(),
+          body: JSON.stringify({
+            proxy_server: proxyServer.trim(),
+            proxy_username: proxyUser.trim(),
+            proxy_password: proxyPass.trim()
+          })
+        })
+          .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+          .then(function (x) {
+            proxyBrowserBtn.disabled = false;
+            if (!x.ok) {
+              showMsg(document.getElementById('metaSocialPageMsg'), '启动失败: ' + (x.d.detail || JSON.stringify(x.d)), true);
+              return;
+            }
+            if (x.d.chromium_opened) {
+              showMsg(document.getElementById('metaSocialPageMsg'), '已打开代理浏览器（Facebook 开发者页面）。你可以在里面创建 App、配置权限等，所有操作都走同一 IP。', false);
+            } else {
+              showMsg(document.getElementById('metaSocialPageMsg'), '浏览器启动失败: ' + (x.d.chromium_message || '未知错误'), true);
+            }
+          })
+          .catch(function (e) {
+            proxyBrowserBtn.disabled = false;
+            showMsg(document.getElementById('metaSocialPageMsg'), '启动失败: ' + e.message, true);
+          });
+      });
+    }
+
     // toggle password visibility
     var toggleBtn = document.getElementById('metaAppSecretToggle');
     if (toggleBtn && !toggleBtn._bound) {
