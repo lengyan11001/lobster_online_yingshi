@@ -9,17 +9,18 @@ import logging
 import random
 import string
 import time
+import uuid
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import PlainTextResponse, Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from .auth import get_current_user
+from .auth import get_current_user, get_current_user_media_edit, _ServerUser
 from .chat import get_customer_service_reply, get_reply_for_channel
 from ..core.config import settings
 from ..db import get_db
@@ -90,6 +91,14 @@ def _get_wecom_forward_secret() -> str:
     return (settings.wecom_forward_secret or "").strip()
 
 
+def _get_server_base_url() -> str:
+    """获取云端服务器地址：优先 WECOM_CLOUD_URL → AUTH_SERVER_BASE，用于同步配置和轮询消息。"""
+    url = _get_wecom_cloud_url()
+    if url:
+        return url
+    return (getattr(settings, "auth_server_base", None) or "").strip().rstrip("/")
+
+
 def _random_callback_path(length: int = 10) -> str:
     return "".join(random.choices(string.ascii_lowercase + string.digits, k=length))
 
@@ -118,6 +127,9 @@ class WecomConfigCreate(BaseModel):
     token: str
     encoding_aes_key: str
     corp_id: str = ""
+    secret: Optional[str] = None
+    contacts_secret: Optional[str] = None
+    agent_id: Optional[int] = None
     product_knowledge: Optional[str] = None
     enterprise_id: Optional[int] = None
     product_id: Optional[int] = None
@@ -128,6 +140,9 @@ class WecomConfigUpdate(BaseModel):
     token: Optional[str] = None
     encoding_aes_key: Optional[str] = None
     corp_id: Optional[str] = None
+    secret: Optional[str] = None
+    contacts_secret: Optional[str] = None
+    agent_id: Optional[int] = None
     product_knowledge: Optional[str] = None
     enterprise_id: Optional[int] = None
     product_id: Optional[int] = None
@@ -145,7 +160,7 @@ class WecomCloudConfigUpdate(BaseModel):
 
 
 @router.get("/api/wecom/cloud-config", summary="读取企微云端配置（界面配置）")
-def get_wecom_cloud_config(current_user: User = Depends(get_current_user)):
+def get_wecom_cloud_config(current_user = Depends(get_current_user_media_edit)):
     cfg = _read_wecom_cloud_config()
     url = (cfg.get("wecom_cloud_url") or "").strip().rstrip("/")
     secret = (cfg.get("wecom_forward_secret") or "").strip()
@@ -160,7 +175,7 @@ def get_wecom_cloud_config(current_user: User = Depends(get_current_user)):
 @router.post("/api/wecom/cloud-config", summary="保存企微云端配置")
 def update_wecom_cloud_config(
     body: WecomCloudConfigUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
 ):
     cfg = _read_wecom_cloud_config()
     if body.wecom_cloud_url is not None:
@@ -171,17 +186,27 @@ def update_wecom_cloud_config(
     return {"ok": True, "message": "企微云端配置已保存"}
 
 
+def _get_callback_base_url(request: Request) -> str:
+    """企微回调 URL 的根地址：优先云端 → AUTH_SERVER_BASE → PUBLIC_BASE_URL → 请求地址。"""
+    base = (_get_wecom_cloud_url() or "").strip().rstrip("/")
+    if not base:
+        base = (getattr(settings, "auth_server_base", None) or "").strip().rstrip("/")
+    if not base:
+        base = (settings.public_base_url or "").strip().rstrip("/")
+    if not base:
+        base = str(request.base_url).rstrip("/")
+    return base
+
+
 @router.get("/api/wecom/configs", summary="企业微信配置列表")
 def list_wecom_configs(
     request: Request,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     logger.info("[WeCom] GET /api/wecom/configs user_id=%s", current_user.id)
     rows = db.query(WecomConfig).filter(WecomConfig.user_id == current_user.id).order_by(WecomConfig.id).all()
-    base = (settings.public_base_url or "").strip().rstrip("/")
-    if not base:
-        base = str(request.base_url).rstrip("/")
+    base = _get_callback_base_url(request)
     configs_out = []
     for r in rows:
         ent_name = ""
@@ -194,36 +219,39 @@ def list_wecom_configs(
             prod = db.query(Product).filter(Product.id == r.product_id).first()
             if prod:
                 prod_name = prod.name or ""
-        configs_out.append({
+        item = {
             "id": r.id,
             "name": r.name,
             "callback_path": r.callback_path,
             "callback_url": f"{base}/api/wecom/callback/{r.callback_path}",
             "corp_id": (r.corp_id or "")[:8] + "***" if r.corp_id else "",
+            "has_secret": bool((getattr(r, 'secret', None) or "").strip()),
+            "agent_id": getattr(r, 'agent_id', None),
             "has_product_knowledge": bool((r.product_knowledge or "").strip()),
             "enterprise_id": r.enterprise_id,
             "product_id": r.product_id,
             "enterprise_name": ent_name,
             "product_name": prod_name,
             "created_at": r.created_at.isoformat() if r.created_at else None,
-        })
+        }
+        configs_out.append(item)
     return {"configs": configs_out}
 
 
 @router.post("/api/wecom/configs", summary="新增企业微信配置")
 def create_wecom_config(
     body: WecomConfigCreate,
-    current_user: User = Depends(get_current_user),
+    request: Request,
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     WXBizMsgCrypt, _, _ = _get_crypt_and_helpers()
     if not WXBizMsgCrypt:
         raise HTTPException(status_code=503, detail="企业微信能力未加载（请安装 pycryptodome）")
-    key = (body.encoding_aes_key or "").strip()
-    if not key.endswith("="):
-        key = key + "="
+    raw_key = (body.encoding_aes_key or "").strip().rstrip("=")
+    key = raw_key + "="
     try:
-        WXBizMsgCrypt(body.token.strip(), key, body.corp_id or "default")
+        WXBizMsgCrypt(body.token.strip(), raw_key, body.corp_id or "default")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"EncodingAESKey 无效: {e}")
     for _ in range(5):
@@ -239,6 +267,9 @@ def create_wecom_config(
         token=body.token.strip(),
         encoding_aes_key=key,
         corp_id=(body.corp_id or "").strip(),
+        secret=(body.secret or "").strip() or None,
+        contacts_secret=(body.contacts_secret or "").strip() or None,
+        agent_id=body.agent_id,
         product_knowledge=(body.product_knowledge or "").strip() or None,
         enterprise_id=body.enterprise_id,
         product_id=body.product_id,
@@ -246,11 +277,13 @@ def create_wecom_config(
     db.add(row)
     db.commit()
     db.refresh(row)
+    _sync_config_to_cloud(row)
+    base = _get_callback_base_url(request)
     return {
         "id": row.id,
         "name": row.name,
         "callback_path": row.callback_path,
-        "callback_url": f"/api/wecom/callback/{row.callback_path}",
+        "callback_url": f"{base}/api/wecom/callback/{row.callback_path}",
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 
@@ -258,7 +291,7 @@ def create_wecom_config(
 @router.get("/api/wecom/configs/{config_id:int}", summary="获取单条配置（非敏感字段，用于编辑）")
 def get_wecom_config(
     config_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     row = db.query(WecomConfig).filter(WecomConfig.id == config_id, WecomConfig.user_id == current_user.id).first()
@@ -269,6 +302,9 @@ def get_wecom_config(
         "name": row.name,
         "callback_path": row.callback_path,
         "corp_id": row.corp_id or "",
+        "secret": row.secret or "",
+        "contacts_secret": getattr(row, 'contacts_secret', '') or "",
+        "agent_id": row.agent_id,
         "product_knowledge": row.product_knowledge or "",
         "enterprise_id": row.enterprise_id,
         "product_id": row.product_id,
@@ -279,7 +315,7 @@ def get_wecom_config(
 def update_wecom_config(
     config_id: int,
     body: WecomConfigUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     row = db.query(WecomConfig).filter(WecomConfig.id == config_id, WecomConfig.user_id == current_user.id).first()
@@ -296,6 +332,12 @@ def update_wecom_config(
         row.encoding_aes_key = key
     if body.corp_id is not None:
         row.corp_id = (body.corp_id or "").strip()
+    if body.secret is not None:
+        row.secret = (body.secret or "").strip() or None
+    if body.contacts_secret is not None:
+        row.contacts_secret = (body.contacts_secret or "").strip() or None
+    if body.agent_id is not None:
+        row.agent_id = body.agent_id
     if body.product_knowledge is not None:
         row.product_knowledge = (body.product_knowledge or "").strip() or None
     if body.enterprise_id is not None:
@@ -304,20 +346,23 @@ def update_wecom_config(
         row.product_id = body.product_id
     db.commit()
     db.refresh(row)
+    _sync_config_to_cloud(row)
     return {"id": row.id, "name": row.name, "callback_path": row.callback_path}
 
 
 @router.delete("/api/wecom/configs/{config_id:int}", summary="删除企业微信配置")
 def delete_wecom_config(
     config_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     row = db.query(WecomConfig).filter(WecomConfig.id == config_id, WecomConfig.user_id == current_user.id).first()
     if not row:
         raise HTTPException(status_code=404, detail="配置不存在")
+    callback_path = row.callback_path
     db.delete(row)
     db.commit()
+    _delete_config_from_cloud(callback_path)
     return {"ok": True}
 
 
@@ -453,7 +498,7 @@ class ProductUpdate(BaseModel):
 
 @router.get("/api/wecom/enterprises", summary="企业列表")
 def list_enterprises(
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     rows = db.query(Enterprise).filter(Enterprise.user_id == current_user.id).order_by(Enterprise.id).all()
@@ -463,7 +508,7 @@ def list_enterprises(
 @router.post("/api/wecom/enterprises", summary="新增企业")
 def create_enterprise(
     body: EnterpriseCreate,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     row = Enterprise(
@@ -481,7 +526,7 @@ def create_enterprise(
 def update_enterprise(
     ent_id: int,
     body: EnterpriseUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     row = db.query(Enterprise).filter(Enterprise.id == ent_id, Enterprise.user_id == current_user.id).first()
@@ -499,7 +544,7 @@ def update_enterprise(
 @router.delete("/api/wecom/enterprises/{ent_id:int}", summary="删除企业")
 def delete_enterprise(
     ent_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     row = db.query(Enterprise).filter(Enterprise.id == ent_id, Enterprise.user_id == current_user.id).first()
@@ -513,7 +558,7 @@ def delete_enterprise(
 @router.get("/api/wecom/products", summary="产品列表")
 def list_products(
     enterprise_id: Optional[int] = None,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     q = db.query(Product).join(Enterprise, Product.enterprise_id == Enterprise.id).filter(Enterprise.user_id == current_user.id)
@@ -526,7 +571,7 @@ def list_products(
 @router.post("/api/wecom/products", summary="新增产品")
 def create_product(
     body: ProductCreate,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     ent = db.query(Enterprise).filter(Enterprise.id == body.enterprise_id, Enterprise.user_id == current_user.id).first()
@@ -551,7 +596,7 @@ def create_product(
 def update_product(
     prod_id: int,
     body: ProductUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     row = db.query(Product).join(Enterprise, Product.enterprise_id == Enterprise.id).filter(
@@ -573,7 +618,7 @@ def update_product(
 @router.delete("/api/wecom/products/{prod_id:int}", summary="删除产品")
 def delete_product(
     prod_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     row = db.query(Product).join(Enterprise, Product.enterprise_id == Enterprise.id).filter(
@@ -617,7 +662,7 @@ def list_customers(
     name: Optional[str] = None,
     phone: Optional[str] = None,
     wechat_id: Optional[str] = None,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     q = db.query(Customer).join(WecomConfig, Customer.wecom_config_id == WecomConfig.id).filter(WecomConfig.user_id == current_user.id)
@@ -653,7 +698,7 @@ def list_customers(
 @router.post("/api/wecom/customers", summary="新增/指定客户")
 def create_customer(
     body: CustomerCreate,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     cfg = db.query(WecomConfig).filter(WecomConfig.id == body.wecom_config_id, WecomConfig.user_id == current_user.id).first()
@@ -692,7 +737,7 @@ def create_customer(
 @router.get("/api/wecom/customers/{customer_id:int}", summary="客户详情")
 def get_customer(
     customer_id: int,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     row = db.query(Customer).join(WecomConfig, Customer.wecom_config_id == WecomConfig.id).filter(
@@ -720,7 +765,7 @@ def get_customer(
 def update_customer(
     customer_id: int,
     body: CustomerUpdate,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     row = db.query(Customer).join(WecomConfig, Customer.wecom_config_id == WecomConfig.id).filter(
@@ -758,7 +803,7 @@ def list_messages(
     keyword: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     q = db.query(WecomMessage).join(WecomConfig, WecomMessage.wecom_config_id == WecomConfig.id).filter(WecomConfig.user_id == current_user.id)
@@ -795,7 +840,7 @@ def list_messages(
 @router.get("/api/wecom/sessions", summary="会话列表（按客户，含最后一条消息预览）")
 def list_sessions(
     wecom_config_id: Optional[int] = None,
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     q = (
@@ -843,10 +888,10 @@ def list_sessions(
 # ---------------------------------------------------------------------------
 async def _do_poll_and_reply(user_id: int, db: Session) -> Dict[str, Any]:
     """内部：对指定 user_id 执行一次拉取并回复，返回 {processed, errors}。"""
-    base = _get_wecom_cloud_url()
+    base = _get_server_base_url()
     secret = _get_wecom_forward_secret()
     if not base:
-        return {"processed": 0, "errors": ["未配置企微云端地址"]}
+        return {"processed": 0, "errors": ["未配置服务器地址（WECOM_CLOUD_URL 或 AUTH_SERVER_BASE）"]}
     headers = {}
     if secret:
         headers["X-Forward-Secret"] = secret
@@ -923,12 +968,14 @@ async def _do_poll_and_reply(user_id: int, db: Session) -> Dict[str, Any]:
         await asyncio.sleep(delay_s)
         db.add(WecomMessage(wecom_config_id=cfg.id, customer_id=customer.id, direction="out", content=reply_text, msg_type="text", external_user_id=from_user, to_user=to_user))
         db.commit()
+        # 统一由服务器代发（服务器 IP 固定已加白名单），不在本地直发（本地出口 IP 会变）
         try:
+            ack_body = {"message_id": msg_id, "reply_text": reply_text, "skip_send": False}
             async with httpx.AsyncClient(timeout=15.0) as client:
-                r2 = await client.post(f"{base}/api/wecom/submit-reply", json={"message_id": msg_id, "reply_text": reply_text}, headers=headers)
+                r2 = await client.post(f"{base}/api/wecom/submit-reply", json=ack_body, headers=headers)
                 r2.raise_for_status()
         except Exception as e:
-            logger.exception("[WeCom] 提交回复失败 message_id=%s: %s", msg_id, e)
+            logger.exception("[WeCom] 提交/ack 失败 message_id=%s: %s", msg_id, e)
             errors.append(f"message_id={msg_id} 提交失败: {e}")
             continue
         processed += 1
@@ -937,14 +984,14 @@ async def _do_poll_and_reply(user_id: int, db: Session) -> Dict[str, Any]:
 
 @router.post("/api/wecom/poll-and-reply", summary="拉取云端待处理消息并回复（轮询一次，后台每2s自动调用）")
 async def wecom_poll_and_reply(
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
-    base = _get_wecom_cloud_url()
+    base = _get_server_base_url()
     if not base:
         raise HTTPException(
             status_code=400,
-            detail="未配置企微云端地址，请在「企业微信-配置」中填写云端地址与转发密钥。",
+            detail="未配置服务器地址，请在环境变量中设置 WECOM_CLOUD_URL 或 AUTH_SERVER_BASE。",
         )
     result = await _do_poll_and_reply(current_user.id, db)
     return result
@@ -956,7 +1003,7 @@ async def wecom_poll_loop():
     from ..db import SessionLocal
     while True:
         await asyncio.sleep(2)
-        if not _get_wecom_cloud_url():
+        if not _get_server_base_url():
             continue
         db = SessionLocal()
         try:
@@ -975,12 +1022,308 @@ async def wecom_poll_loop():
 # ---------------------------------------------------------------------------
 # 资料模板：下载与上传
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# 同步配置到云端（创建/更新时自动推送）
+# ---------------------------------------------------------------------------
+
+def _delete_config_from_cloud(callback_path: str):
+    """尽力从云端删除配置（不阻塞，失败仅记日志）。"""
+    base = _get_server_base_url()
+    if not base:
+        return
+    secret = _get_wecom_forward_secret()
+    headers: Dict[str, str] = {"Content-Type": "application/json"}
+    if secret:
+        headers["X-Forward-Secret"] = secret
+    try:
+        import httpx as _httpx
+        with _httpx.Client(timeout=10.0, verify=False) as client:
+            r = client.post(f"{base}/api/wecom/proxy/delete-config", json={"callback_path": callback_path}, headers=headers)
+            if r.status_code == 200:
+                logger.info("[WeCom] 配置已从云端删除 callback_path=%s", callback_path)
+            else:
+                logger.warning("[WeCom] 从云端删除失败 %s: %s", r.status_code, r.text[:200])
+    except Exception as e:
+        logger.warning("[WeCom] 从云端删除异常: %s", e)
+
+
+def _sync_config_to_cloud(cfg: WecomConfig):
+    """尽力将本地配置同步到云端（不阻塞，失败仅记日志）。"""
+    base = _get_server_base_url()
+    if not base:
+        return
+    secret = _get_wecom_forward_secret()
+    headers: Dict[str, str] = {"Content-Type": "application/json"}
+    if secret:
+        headers["X-Forward-Secret"] = secret
+    payload = {
+        "callback_path": cfg.callback_path,
+        "name": cfg.name or "默认应用",
+        "token": cfg.token,
+        "encoding_aes_key": cfg.encoding_aes_key,
+        "corp_id": cfg.corp_id or "",
+        "secret": cfg.secret or "",
+        "contacts_secret": getattr(cfg, 'contacts_secret', '') or "",
+        "agent_id": cfg.agent_id,
+        "user_id": cfg.user_id,
+    }
+    try:
+        import httpx as _httpx
+        with _httpx.Client(timeout=10.0, verify=False) as client:
+            r = client.post(f"{base}/api/wecom/proxy/sync-config", json=payload, headers=headers)
+            if r.status_code == 200:
+                logger.info("[WeCom] 配置已同步到云端 callback_path=%s", cfg.callback_path)
+            else:
+                logger.warning("[WeCom] 同步到云端失败 %s: %s", r.status_code, r.text[:200])
+    except Exception as e:
+        logger.warning("[WeCom] 同步到云端异常: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# 通讯录 / 发消息 / 群聊：代理到云端 lobster-server
+# ---------------------------------------------------------------------------
+
+async def _cloud_proxy_get(path: str, params: dict = None) -> dict:
+    base = _get_server_base_url()
+    if not base:
+        raise HTTPException(status_code=400, detail="未配置服务器地址（WECOM_CLOUD_URL 或 AUTH_SERVER_BASE）")
+    secret = _get_wecom_forward_secret()
+    headers = {}
+    if secret:
+        headers["X-Forward-Secret"] = secret
+    async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+        r = await client.get(f"{base}{path}", params=params or {}, headers=headers)
+        if r.status_code != 200:
+            try:
+                d = r.json()
+                raise HTTPException(status_code=r.status_code, detail=d.get("detail", r.text))
+            except Exception:
+                raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+
+async def _cloud_proxy_post(path: str, body: dict) -> dict:
+    base = _get_server_base_url()
+    if not base:
+        raise HTTPException(status_code=400, detail="未配置服务器地址（WECOM_CLOUD_URL 或 AUTH_SERVER_BASE）")
+    secret = _get_wecom_forward_secret()
+    headers = {"Content-Type": "application/json"}
+    if secret:
+        headers["X-Forward-Secret"] = secret
+    async with httpx.AsyncClient(timeout=20.0, verify=False) as client:
+        r = await client.post(f"{base}{path}", json=body, headers=headers)
+        if r.status_code != 200:
+            try:
+                d = r.json()
+                raise HTTPException(status_code=r.status_code, detail=d.get("detail", r.text))
+            except Exception:
+                raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+
+def _get_callback_path_for_config(db: Session, config_id: int, user_id: int) -> str:
+    cfg = db.query(WecomConfig).filter(WecomConfig.id == config_id, WecomConfig.user_id == user_id).first()
+    if not cfg:
+        raise HTTPException(status_code=404, detail="配置不存在")
+    return cfg.callback_path
+
+
+@router.get("/api/wecom/contacts/departments", summary="通讯录-部门列表（代理到云端）")
+async def wecom_contact_departments(
+    config_id: int,
+    parent_id: int = 0,
+    current_user = Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+):
+    cb_path = _get_callback_path_for_config(db, config_id, current_user.id)
+    params = {"callback_path": cb_path}
+    if parent_id:
+        params["parent_id"] = parent_id
+    return await _cloud_proxy_get("/api/wecom/proxy/contacts/departments", params)
+
+
+@router.get("/api/wecom/contacts/users", summary="通讯录-成员列表（代理到云端）")
+async def wecom_contact_users(
+    config_id: int,
+    department_id: int = 1,
+    current_user = Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+):
+    cb_path = _get_callback_path_for_config(db, config_id, current_user.id)
+    return await _cloud_proxy_get(
+        "/api/wecom/proxy/contacts/users",
+        {"callback_path": cb_path, "department_id": department_id},
+    )
+
+
+class LocalSendMessageBody(BaseModel):
+    config_id: int
+    to_user: Optional[str] = None
+    to_party: Optional[str] = None
+    to_tag: Optional[str] = None
+    msg_type: str = "text"
+    content: str = ""
+    media_id: Optional[str] = None
+
+
+@router.post("/api/wecom/send-message", summary="发送应用消息（代理到云端）")
+async def wecom_send_message(
+    body: LocalSendMessageBody,
+    current_user = Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+):
+    cb_path = _get_callback_path_for_config(db, body.config_id, current_user.id)
+    payload = {
+        "callback_path": cb_path,
+        "to_user": body.to_user,
+        "to_party": body.to_party,
+        "to_tag": body.to_tag,
+        "msg_type": body.msg_type,
+        "content": body.content,
+    }
+    if body.media_id:
+        payload["media_id"] = body.media_id
+    return await _cloud_proxy_post("/api/wecom/proxy/send-message", payload)
+
+
+MAX_MEDIA_SIZE = 20 * 1024 * 1024
+_WECOM_UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent.parent / "static" / "uploads" / "wecom"
+
+@router.post("/api/wecom/media/upload", summary="上传临时素材到企微（代理到云端）")
+async def wecom_media_upload(
+    config_id: int = Query(...),
+    media_type: str = Query("image"),
+    file: UploadFile = File(...),
+    current_user=Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+):
+    file_bytes = await file.read()
+    if len(file_bytes) > MAX_MEDIA_SIZE:
+        raise HTTPException(status_code=400, detail=f"文件过大，最大 {MAX_MEDIA_SIZE // 1024 // 1024}MB")
+    cb_path = _get_callback_path_for_config(db, config_id, current_user.id)
+    base = _get_server_base_url()
+    if not base:
+        raise HTTPException(status_code=400, detail="未配置服务器地址")
+    secret = _get_wecom_forward_secret()
+    headers = {}
+    if secret:
+        headers["X-Forward-Secret"] = secret
+    async with httpx.AsyncClient(timeout=60.0, verify=False) as client:
+        r = await client.post(
+            f"{base}/api/wecom/proxy/media/upload",
+            params={"callback_path": cb_path, "media_type": media_type},
+            files={"file": (file.filename or "file", file_bytes, file.content_type or "application/octet-stream")},
+            headers=headers,
+        )
+        if r.status_code != 200:
+            try:
+                d = r.json()
+                raise HTTPException(status_code=r.status_code, detail=d.get("detail", r.text))
+            except Exception:
+                raise HTTPException(status_code=r.status_code, detail=r.text)
+        result = r.json()
+    ext = Path(file.filename or "file").suffix or (".jpg" if media_type == "image" else ".mp4")
+    local_name = f"{uuid.uuid4().hex}{ext}"
+    _WECOM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    (Path(_WECOM_UPLOAD_DIR) / local_name).write_bytes(file_bytes)
+    result["local_url"] = f"/static/uploads/wecom/{local_name}"
+    return result
+
+
+class CustomerSendBody(BaseModel):
+    wecom_config_id: int
+    customer_id: int
+    content: str = ""
+    msg_type: str = "text"
+    media_id: Optional[str] = None
+
+
+@router.post("/api/wecom/send-message-to-customer", summary="通过 customer_id 向客户发送消息")
+async def wecom_send_to_customer(
+    body: CustomerSendBody,
+    current_user=Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+):
+    cust = db.query(Customer).filter(Customer.id == body.customer_id).first()
+    if not cust:
+        raise HTTPException(status_code=404, detail="客户不存在")
+    cb_path = _get_callback_path_for_config(db, body.wecom_config_id, current_user.id)
+    payload = {
+        "callback_path": cb_path,
+        "to_user": cust.external_user_id,
+        "msg_type": body.msg_type,
+        "content": body.content,
+    }
+    if body.media_id:
+        payload["media_id"] = body.media_id
+    result = await _cloud_proxy_post("/api/wecom/proxy/send-message", payload)
+    content_stored = _wecom_body_display(body.content, body.msg_type)
+    db.add(WecomMessage(
+        wecom_config_id=body.wecom_config_id,
+        customer_id=cust.id,
+        direction="out",
+        content=content_stored,
+        msg_type=body.msg_type or "text",
+        external_user_id=cust.external_user_id,
+        to_user=cust.external_user_id,
+    ))
+    db.commit()
+    return result
+
+
+class LocalCreateGroupBody(BaseModel):
+    config_id: int
+    name: str = ""
+    userlist: List[str]
+    owner: Optional[str] = None
+
+
+@router.post("/api/wecom/group-chat/create", summary="创建群聊（代理到云端）")
+async def wecom_create_group_chat(
+    body: LocalCreateGroupBody,
+    current_user = Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+):
+    cb_path = _get_callback_path_for_config(db, body.config_id, current_user.id)
+    return await _cloud_proxy_post("/api/wecom/proxy/group-chat/create", {
+        "callback_path": cb_path,
+        "name": body.name,
+        "userlist": body.userlist,
+        "owner": body.owner,
+    })
+
+
+class LocalSendGroupMsgBody(BaseModel):
+    config_id: int
+    chatid: str
+    msg_type: str = "text"
+    content: str = ""
+
+
+@router.post("/api/wecom/group-chat/send", summary="发送群聊消息（代理到云端）")
+async def wecom_send_group_message(
+    body: LocalSendGroupMsgBody,
+    current_user = Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+):
+    cb_path = _get_callback_path_for_config(db, body.config_id, current_user.id)
+    return await _cloud_proxy_post("/api/wecom/proxy/group-chat/send", {
+        "callback_path": cb_path,
+        "chatid": body.chatid,
+        "msg_type": body.msg_type,
+        "content": body.content,
+    })
+
+
+# ---------------------------------------------------------------------------
+# 资料模板：下载与上传
+# ---------------------------------------------------------------------------
 MATERIAL_TEMPLATE_HEADERS = ["企业名称", "公司介绍", "产品名称", "产品介绍", "常用话术"]
 
 
 @router.get("/api/wecom/material-template", summary="下载资料填写模板（CSV）")
 def download_material_template(
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
 ):
     """返回 CSV 模板，表头：企业名称、公司介绍、产品名称、产品介绍、常用话术。多行表示多产品（同一企业可多行）。"""
     buf = io.StringIO()
@@ -998,7 +1341,7 @@ def download_material_template(
 @router.post("/api/wecom/upload-materials", summary="上传已填写的资料 CSV，导入企业/产品")
 async def upload_materials(
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user = Depends(get_current_user_media_edit),
     db: Session = Depends(get_db),
 ):
     """解析 CSV（UTF-8 或带 BOM），按行创建/更新企业与产品。企业名称+产品名称唯一，存在则更新。"""
