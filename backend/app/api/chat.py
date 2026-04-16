@@ -512,6 +512,13 @@ def _build_lobster_main_system_prompt(edition: str, has_tools: bool) -> str:
         if not body.strip():
             logger.warning("LOBSTER_CHAT_POLICY_TOOLS.md 为空，降级为无工具提示")
             body = _no_tools_sys_hint(edition)
+        comfly_models = _get_comfly_image_models()
+        if comfly_models:
+            body += (
+                "【图片模型】用户指定模型时必须原样传入 payload.model。"
+                "可用图片模型: fal-ai/flux-2/flash, " + ", ".join(comfly_models)
+                + "。用户说用某模型就传该模型名，禁止替换为 default。\n"
+            )
     else:
         body = _no_tools_sys_hint(edition)
     return intro + body + _LOBSTER_CHAT_POLICY_CLOSING
