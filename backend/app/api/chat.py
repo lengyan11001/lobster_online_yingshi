@@ -36,9 +36,37 @@ from ..services.capability_cost_confirm import invoke_should_prompt_cost_confirm
 from .mcp_gateway import set_mcp_token_for_agent
 
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
+_COMFLY_PRICING_PATH = _BASE_DIR / "comfly_pricing.json"
 
 logger = logging.getLogger(__name__)
+
+
+def _get_comfly_image_models() -> list[str]:
+    """Return Comfly image model IDs from comfly_pricing.json (dalle format = image models)."""
+    try:
+        data = json.loads(_COMFLY_PRICING_PATH.read_text(encoding="utf-8"))
+        models = data.get("models") or {}
+        return [k for k, v in models.items() if isinstance(v, dict) and v.get("api_format") == "dalle"]
+    except Exception:
+        return []
 router = APIRouter()
+
+# chat/stream 与工具链遇 httpx 对端掐连接时的统一用户文案（避免界面直接显示英文 RemoteProtocolError）
+_REMOTE_DISCONNECT_USER_MSG = (
+    "上游连接被异常关闭（未返回完整 HTTP 响应），常见于网关或速推、OpenClaw、MCP 一侧重启、"
+    "代理超时或网络抖动。若进度里已出现「✓ 素材已生成」，请到素材库用对应素材 ID 查看；"
+    "也可刷新页面后续查或重新发送消息重试。"
+)
+
+
+def _friendly_chat_stream_exception(err: BaseException) -> str:
+    """将 chat/stream 恢复轮询或主流程外层异常转成用户可读说明。"""
+    if isinstance(err, httpx.RemoteProtocolError):
+        return _REMOTE_DISCONNECT_USER_MSG
+    raw = (str(err) if err is not None else "").strip()
+    if "server disconnected without sending a response" in raw.lower():
+        return _REMOTE_DISCONNECT_USER_MSG
+    return raw or (type(err).__name__ if err is not None else "UnknownError")
 
 # 与龙虾主对话 system 分离：app.log 曾记录模型在此场景下输出闲聊而非 JSON（因主 system 强调必须调工具）
 _REVIEW_PROMPT_DRAFTS_SYSTEM = """你是「审核后发布」定时任务的提示词草稿生成器。
@@ -51,6 +79,9 @@ MAX_TOOL_ROUNDS = 8
 MAX_TOOL_ROUNDS_ORCHESTRATION = 16
 _schedule_orchestration_active: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "_schedule_orchestration_active", default=False
+)
+_cost_cancelled_caps_ctx: contextvars.ContextVar[set] = contextvars.ContextVar(
+    "_cost_cancelled_caps_ctx", default=None
 )
 _review_prompt_drafts_only_active: contextvars.ContextVar[bool] = contextvars.ContextVar(
     "_review_prompt_drafts_only_active", default=False
@@ -69,7 +100,12 @@ class _SkipMcpToolCall(Exception):
 
 
 _URL_RE = re.compile(r'https?://[^\s"\'<>\)\]]+', re.IGNORECASE)
+_PUBLISH_INTENT_RE = re.compile(
+    r"(发布|发到|发送到|发文|发帖|发视频|发图|post|publish|推送到|分享到|上传到|投稿)",
+    re.IGNORECASE,
+)
 _pending_tool_logs: contextvars.ContextVar[List[Dict]] = contextvars.ContextVar("_pending_tool_logs", default=[])
+_list_capabilities_cache: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar("_list_capabilities_cache", default=None)
 
 # 对话轮内调用 MCP（如 publish_content）时附带 X-Chat-Model，供 /api/publish 走与会话一致的速推/直连模型生成文案
 _mcp_forward_headers_ctx: contextvars.ContextVar[Optional[Dict[str, str]]] = contextvars.ContextVar(
@@ -198,13 +234,16 @@ def _apply_invoke_payload_to_saved_assets(
 
 def _terminal_saved_assets_for_task_result(result_text: str) -> List[Dict[str, Any]]:
     """task.get_result 终态：优先 MCP saved_assets，否则扫视频 URL，再尝试扫图 URL。"""
-    saved = _extract_saved_assets_from_task_result(result_text)
+    clean = (result_text or "").strip()
+    if "\n\n[SYSTEM]" in clean:
+        clean = clean[: clean.index("\n\n[SYSTEM]")].strip()
+    saved = _extract_saved_assets_from_task_result(clean)
     if saved:
         return saved
-    v = _extract_video_urls_from_task_result(result_text)
+    v = _extract_video_urls_from_task_result(clean)
     if v:
         return v
-    return _extract_image_urls_from_generate_result(result_text)
+    return _extract_image_urls_from_generate_result(clean)
 
 
 def _merge_publish_asset_hints(new_ids: List[str]) -> None:
@@ -333,18 +372,18 @@ def _normalize_invoke_task_get_result_args(args: Dict[str, Any]) -> Dict[str, An
     if not isinstance(payload, dict):
         payload = {}
     pl = dict(payload)
-    tid = (pl.get("task_id") or "").strip()
+    tid = str(pl.get("task_id") or "").strip()
     if not tid:
         for k in ("taskId", "taskid", "TaskId"):
             v = pl.get(k)
-            if isinstance(v, str) and v.strip():
-                tid = v.strip()
+            if v is not None and str(v).strip():
+                tid = str(v).strip()
                 break
     if not tid:
         for k in ("task_id", "taskId", "taskid"):
             v = args.get(k)
-            if isinstance(v, str) and v.strip():
-                tid = v.strip()
+            if v is not None and str(v).strip():
+                tid = str(v).strip()
                 break
     if not tid:
         nested = pl.get("payload")
@@ -382,7 +421,7 @@ _ONLINE_SYS_PREFIX = (
     "若 invoke_capability 等工具返回「Token 未配置」「403」「认证失败」或上游错误，请如实引用工具返回的原文，"
     "并说明需排查：服务器 MCP 与 Token、本机 AUTH_SERVER_BASE 与 mcp-gateway 链路、是否已用服务器账号登录；"
     "禁止把「请用户自行配置速推 Token」作为主要解决办法。"
-    "若工具返回「积分不足」「余额不足」、HTTP 402 或预扣积分失败且原文明确为余额/积分问题，必须说明是账户积分不足、需充值或购买积分，"
+    "若工具返回「算力不足」「余额不足」、HTTP 402 或预扣算力失败且原文明确为余额/算力问题，必须说明是账户算力不足、需充值或购买算力，"
     "禁止将原因概括为「服务器配置错误」「服务器设置问题」或暗示管理员改服务器配置。\n\n"
 )
 
@@ -748,18 +787,34 @@ async def get_customer_service_reply(
     except HTTPException:
         model = "openclaw"
     cfg = _resolve_config(model) if model else None
+    _ERROR_PATTERNS = re.compile(
+        r"API rate limit|rate.limit.reached|internal server error|service unavailable|"
+        r"quota exceeded|token limit|billing|insufficient.credits|"
+        r"⚠️.*rate.limit|⚠️.*error|503|429|too many requests",
+        re.IGNORECASE,
+    )
+    _FALLBACK = "您好，客服正忙，请稍后再联系我们。"
+
     if cfg:
         try:
             reply = await _chat_openai(messages, cfg, [], "", sutui_token=None)
-            return (reply or "").strip() or "收到。"
+            reply = (reply or "").strip() or "收到。"
+            if _ERROR_PATTERNS.search(reply):
+                logger.warning("[客服回复] AI 返回疑似错误信息，已过滤: %s", reply[:200])
+                return _FALLBACK
+            return reply
         except HTTPException:
-            return "服务暂时不可用，请稍后再试。"
+            return _FALLBACK
         except Exception as e:
             logger.exception("[客服回复] chat 异常: %s", e)
-            return "处理时遇到问题，请稍后再试。"
+            return _FALLBACK
     oc_reply = await _try_openclaw(messages, model or "openclaw", "")
     if oc_reply:
-        return (oc_reply or "").strip() or "收到。"
+        oc_reply = (oc_reply or "").strip() or "收到。"
+        if _ERROR_PATTERNS.search(oc_reply):
+            logger.warning("[客服回复] OpenClaw 返回疑似错误信息，已过滤: %s", oc_reply[:200])
+            return _FALLBACK
+        return oc_reply
     return "抱歉，当前未配置对话模型，无法回复。"
 
 
@@ -790,6 +845,91 @@ def _last_user_content(cur: List[Dict]) -> str:
             continue
         return raw
     return ""
+
+
+def _user_text_requests_publish(text: str) -> bool:
+    """用户一句里若同时要求「生成并发布」，不得提前结束工具编排。"""
+    s = (text or "").strip()
+    if not s:
+        return False
+    keywords = ("发布", "投稿")
+    for kw in keywords:
+        if kw in s:
+            logger.info("[CHAT] publish_keyword 命中: 「%s」 in text=%s", kw, s[:120])
+            return True
+    platforms = (
+        "抖音", "快手", "小红书", "b站", "B站", "视频号", "微博", "tiktok", "TikTok",
+        "youtube", "YouTube", "instagram", "Instagram",
+    )
+    for p in platforms:
+        if p in s:
+            logger.info("[CHAT] publish_platform 命中: 「%s」 in text=%s", p, s[:120])
+            return True
+    return False
+
+
+def _openai_tool_call_requests_publish(fn_name: str, args: Dict[str, Any]) -> bool:
+    n = (fn_name or "").strip()
+    if n == "publish_content":
+        return True
+    if n != "invoke_capability":
+        return False
+    cap = (args.get("capability_id") or "").strip().lower()
+    if "publish" in cap:
+        return True
+    return False
+
+
+def _openai_round_has_publish_intent(tcs: List[Dict[str, Any]], last_user_content: str) -> bool:
+    if _user_text_requests_publish(last_user_content):
+        return True
+    for tc in tcs or []:
+        fn = tc.get("function") or {}
+        name = fn.get("name") or ""
+        try:
+            a = json.loads(fn.get("arguments") or "{}")
+        except Exception:
+            a = {}
+        if not isinstance(a, dict):
+            a = {}
+        if _openai_tool_call_requests_publish(name, a):
+            return True
+    return False
+
+
+def _lobster_chat_generation_early_finish_enabled() -> bool:
+    return bool(getattr(settings, "lobster_chat_generation_early_finish", True))
+
+
+def _lobster_chat_generation_reply_style() -> str:
+    s = (getattr(settings, "lobster_chat_generation_reply_style", None) or "minimal").strip().lower()
+    return s if s in ("minimal", "detailed") else "minimal"
+
+
+def _lobster_chat_generation_reply_minimal() -> bool:
+    return _lobster_chat_generation_reply_style() == "minimal"
+
+
+def _lobster_chat_sse_emit_generating_reply_status() -> bool:
+    return bool(getattr(settings, "lobster_chat_sse_status_generating_reply", False))
+
+
+async def _maybe_progress_status_generating_reply(
+    progress_cb: Optional[Callable[[Dict], Awaitable[None]]],
+) -> None:
+    if not progress_cb or not _lobster_chat_sse_emit_generating_reply_status():
+        return
+    try:
+        await progress_cb({"type": "status", "message": "正在生成回复…"})
+    except Exception:
+        pass
+
+
+def _early_finish_generation_user_reply(kind_cn: str) -> str:
+    """纯生成提前结束时返回给前端的助手文案（不含链接，缩略图由 tool_end/saved_assets 展示）。"""
+    if _lobster_chat_generation_reply_minimal():
+        return "已完成。"
+    return f"{kind_cn}已生成并入库。"
 
 
 def _correct_video_to_image_if_user_asked_image(args: Dict, last_user_content: str) -> Dict:
@@ -826,6 +966,28 @@ def _correct_video_to_image_if_user_asked_image(args: Dict, last_user_content: s
     args["payload"] = payload
     logger.info("[CHAT] 根据用户意图将 video.generate 纠正为 image.generate，并已清理 payload 为仅图片参数")
     return args
+
+
+_VIDEO_ONLY_MODEL_HINTS = ("veo", "sora", "seedance", "hailuo", "minimax", "wan/", "wan2", "kling", "grok", "vidu")
+
+
+def _detect_model_capability_mismatch(args: Dict) -> Optional[str]:
+    """检测 model 与 capability 类型不匹配，返回错误提示；匹配则返回 None。"""
+    if not args:
+        return None
+    cap = (args.get("capability_id") or "").strip()
+    inner = args.get("payload")
+    if not isinstance(inner, dict):
+        return None
+    raw_model = (inner.get("model") or inner.get("model_id") or "").strip()
+    if not raw_model:
+        return None
+    low = raw_model.lower()
+    if cap == "image.generate":
+        is_video = _is_known_video_model_without_slash(raw_model) or any(h in low for h in _VIDEO_ONLY_MODEL_HINTS)
+        if is_video:
+            return f"模型「{raw_model}」是视频生成模型，不能用于图片生成（image.generate）。请改用 video.generate 或指定图片模型。"
+    return None
 
 
 _MAX_VIDEO_IMAGE_ATTACHMENTS = 9
@@ -1025,21 +1187,122 @@ def _infer_video_model_from_user_text(
 
 
 _DEFAULT_IMAGE_GENERATE_MODEL = "fal-ai/flux-2/flash"
+_DEFAULT_VIDEO_GENERATE_MODEL_T2V = "sora2pub/text-to-video"
+_DEFAULT_VIDEO_GENERATE_MODEL_I2V = "sora2pub/image-to-video"
+
+_IMAGE_MODEL_ALIASES: Dict[str, str] = {
+    "flux": "fal-ai/flux-2/flash",
+    "flux2": "fal-ai/flux-2/flash",
+    "flux-2": "fal-ai/flux-2/flash",
+    "flux2-flash": "fal-ai/flux-2/flash",
+    "flux-2-flash": "fal-ai/flux-2/flash",
+    "seedream": "fal-ai/bytedance/seedream/v4.5/text-to-image",
+    "seedream-4.5": "fal-ai/bytedance/seedream/v4.5/text-to-image",
+    "seedream-5": "fal-ai/bytedance/seedream/v5/lite/text-to-image",
+    "nano-banana": "fal-ai/nano-banana-pro",
+    "nano-banana-pro": "fal-ai/nano-banana-pro",
+    "banana": "fal-ai/nano-banana-pro",
+    "gemini": "kapon/gemini-3-pro-image-preview",
+    "gemini-image": "kapon/gemini-3-pro-image-preview",
+}
+
+_VIDEO_MODEL_ALIASES: Dict[str, str] = {
+    "sora": "sora2pub/text-to-video",
+    "sora2": "sora2pub/text-to-video",
+    "sora-2": "sora2pub/text-to-video",
+    "seedance": "ark/seedance-2.0",
+    "seedance-2": "ark/seedance-2.0",
+    "seedance-2.0": "ark/seedance-2.0",
+    "veo": "fal-ai/veo3.1",
+    "veo3": "fal-ai/veo3.1",
+    "veo3.1": "fal-ai/veo3.1",
+    "hailuo": "fal-ai/minimax/hailuo-2.3/standard/text-to-video",
+    "kling": "fal-ai/kling-video/v3/standard/text-to-video",
+    "wan": "wan/v2.6/text-to-video",
+    "wan-2.6": "wan/v2.6/text-to-video",
+}
+
+
+def _normalize_model_alias(args: Dict[str, Any]) -> None:
+    """将 LLM 传入的简化模型名映射为 API 需要的完整 model ID。"""
+    if not args:
+        return
+    cap = (args.get("capability_id") or "").strip()
+    inner = args.get("payload")
+    if not isinstance(inner, dict):
+        return
+    raw = (inner.get("model") or inner.get("model_id") or "").strip()
+    if not raw:
+        return
+    low = raw.lower()
+    aliases = _IMAGE_MODEL_ALIASES if cap == "image.generate" else _VIDEO_MODEL_ALIASES if cap == "video.generate" else {}
+    canonical = aliases.get(low)
+    if canonical:
+        logger.info("[CHAT] 模型别名映射 %s → %s", raw, canonical)
+        inner["model"] = canonical
 # 用户只说「配图 / 发头条」但漏传 payload.prompt 时，用正文兜底，避免上游「prompt 不能为空」
 _MAX_IMAGE_GENERATE_PROMPT_CHARS = 4000
 _IMAGE_16_9_RE = re.compile(r"16\s*[:：]\s*9")
 
 
+_DEFAULT_VIDEO_GENERATE_DURATION = 5
+
+def _is_known_video_model_without_slash(model_id: str) -> bool:
+    """model_id 不含 / 但是已知的合法视频模型名（别名表或常见模式匹配）。"""
+    if not model_id:
+        return False
+    low = model_id.lower()
+    if low in _VIDEO_MODEL_ALIASES:
+        return True
+    _KNOWN_VIDEO_PATTERNS = ("veo", "sora", "seedance", "hailuo", "minimax", "kling", "grok", "vidu", "wan")
+    return any(p in low for p in _KNOWN_VIDEO_PATTERNS)
+
+
+def _ensure_video_generate_default_model(args: Dict[str, Any]) -> None:
+    """video.generate 未传 model 或 model 不合法时补默认 sora2；有 image_url 时用 i2v，否则 t2v。未传 duration 时补最短时长。"""
+    if not args or (args.get("capability_id") or "").strip() != "video.generate":
+        return
+    inner = args.get("payload")
+    if not isinstance(inner, dict):
+        inner = {}
+        args["payload"] = inner
+    raw_model = (inner.get("model") or "").strip()
+    if not (raw_model and ("/" in raw_model or _is_known_video_model_without_slash(raw_model))):
+        has_img = bool((inner.get("image_url") or "").strip())
+        chosen = _DEFAULT_VIDEO_GENERATE_MODEL_I2V if has_img else _DEFAULT_VIDEO_GENERATE_MODEL_T2V
+        if raw_model:
+            logger.info("[CHAT] video.generate model「%s」不含 / 且非已知视频模型，已替换为 model=%s", raw_model, chosen)
+        else:
+            logger.info("[CHAT] video.generate 未传 model，已默认 model=%s", chosen)
+        inner["model"] = chosen
+    dur = inner.get("duration")
+    try:
+        dur_f = float(dur) if dur is not None else None
+    except (TypeError, ValueError):
+        dur_f = None
+    if dur_f is None or dur_f <= 0:
+        inner["duration"] = _DEFAULT_VIDEO_GENERATE_DURATION
+        logger.info("[CHAT] video.generate 未传 duration，已默认 duration=%s", _DEFAULT_VIDEO_GENERATE_DURATION)
+
+
 def _ensure_image_generate_default_model(args: Dict[str, Any]) -> None:
-    """image.generate 未传 model 时补默认（与 system 示例一致），避免认证中心预扣与 tasks/create 报缺少 model。"""
+    """image.generate 未传 model 或 model 不合法时补默认，避免认证中心预扣与 tasks/create 报缺少 model。"""
     if not args or (args.get("capability_id") or "").strip() != "image.generate":
         return
     inner = args.get("payload")
     if not isinstance(inner, dict):
         inner = {}
         args["payload"] = inner
-    if (inner.get("model") or inner.get("model_id") or "").strip():
+    raw_model = (inner.get("model") or inner.get("model_id") or "").strip()
+    if raw_model and "/" in raw_model:
         return
+    if raw_model and raw_model.lower() in {m.lower() for m in _get_comfly_image_models()}:
+        logger.info("[CHAT] image.generate model「%s」为 Comfly 模型，保留原值", raw_model)
+        return
+    if raw_model and raw_model.lower().startswith("jimeng-"):
+        return
+    if raw_model:
+        logger.info("[CHAT] image.generate model「%s」不含 / 疑似幻觉模型名，已替换为 model=%s", raw_model, _DEFAULT_IMAGE_GENERATE_MODEL)
     inner["model"] = _DEFAULT_IMAGE_GENERATE_MODEL
     logger.info(
         "[CHAT] image.generate 未传 model，已默认 model=%s",
@@ -2232,6 +2495,11 @@ async def _exec_tool(
     user_id: Optional[int] = None,
 ) -> str:
     """Execute a tool on the local MCP server and return the text result. progress_cb: 可选，用于流式推送进度（tool_start/tool_end）。"""
+    if name == "list_capabilities":
+        cached = _list_capabilities_cache.get()
+        if cached is not None:
+            logger.info("[对话] list_capabilities 命中缓存，跳过重复调用")
+            return cached
     if name == "invoke_capability" and (args.get("capability_id") or "").strip() == "task.get_result":
         args = _normalize_invoke_task_get_result_args(args)
     capability_id = (args.get("capability_id") or "").strip() if name == "invoke_capability" else None
@@ -2295,7 +2563,7 @@ async def _exec_tool(
     elif capability_id == "comfly.veo":
         _pl_cv_s = args.get("payload") if isinstance(args.get("payload"), dict) else {}
         if (_pl_cv_s.get("action") or "").strip() == "poll_video":
-            _tv_s = (_pl_cv_s.get("task_id") or "").strip()
+            _tv_s = str(_pl_cv_s.get("task_id") or "").strip()
             if _tv_s:
                 ev_start["task_id"] = _tv_s
     if progress_cb and not skip_tool_start:
@@ -2306,6 +2574,10 @@ async def _exec_tool(
 
     cost_confirm_cancel = False
     cost_confirm_result_text = ""
+    _cost_cancelled_caps = _cost_cancelled_caps_ctx.get()
+    if _cost_cancelled_caps is None:
+        _cost_cancelled_caps = set()
+        _cost_cancelled_caps_ctx.set(_cost_cancelled_caps)
     if (
         getattr(settings, "chat_require_capability_cost_confirm", False)
         and progress_cb
@@ -2317,42 +2589,53 @@ async def _exec_tool(
         and not _schedule_orchestration_active.get()
         and not _review_prompt_drafts_only_active.get()
     ):
-        from ..services.capability_cost_confirm import (
-            CONFIRM_WAIT_SECONDS,
-            abandon_capability_confirm,
-            estimate_capability_credits_for_invoke,
-            register_capability_confirm,
-        )
-
-        est = await estimate_capability_credits_for_invoke(db, capability_id, args if isinstance(args, dict) else {})
-        ctoken, cfut = register_capability_confirm(int(user_id))
-        try:
-            await progress_cb(
-                {
-                    "type": "capability_cost_confirm",
-                    "confirm_token": ctoken,
-                    "capability_id": capability_id,
-                    "invoke_model": _invoke_model_for_cost_confirm(capability_id, args if isinstance(args, dict) else {}),
-                    "estimated_credits": est.get("credits"),
-                    "estimate_note": est.get("note") or "",
-                    "timeout_seconds": CONFIRM_WAIT_SECONDS,
-                }
-            )
-        except Exception:
-            pass
-        timed_out = False
-        try:
-            accepted = await asyncio.wait_for(cfut, timeout=float(CONFIRM_WAIT_SECONDS))
-        except asyncio.TimeoutError:
-            abandon_capability_confirm(ctoken)
-            accepted = False
-            timed_out = True
-        if not accepted:
+        if capability_id in _cost_cancelled_caps:
             cost_confirm_cancel = True
             cost_confirm_result_text = (
-                "确认超时，本次调用已取消。请直接回复用户告知已取消，不要重试。" if timed_out
-                else "用户已取消本次调用。请直接回复用户告知已取消，禁止再次调用同一能力或重试。"
+                "用户已在本轮对话中取消过该能力调用，禁止再次调用。请直接回复用户告知已取消，不要重试或变换参数再调同一能力。"
             )
+        else:
+            from ..services.capability_cost_confirm import (
+                CONFIRM_WAIT_SECONDS,
+                abandon_capability_confirm,
+                estimate_capability_credits_for_invoke,
+                register_capability_confirm,
+            )
+
+            est = await estimate_capability_credits_for_invoke(db, capability_id, args if isinstance(args, dict) else {}, token=token, request=request)
+            _est_credits = est.get("credits")
+            if _est_credits is None or (_est_credits is not None and _est_credits <= 0):
+                pass
+            else:
+                ctoken, cfut = register_capability_confirm(int(user_id))
+                try:
+                    await progress_cb(
+                        {
+                            "type": "capability_cost_confirm",
+                            "confirm_token": ctoken,
+                            "capability_id": capability_id,
+                            "invoke_model": _invoke_model_for_cost_confirm(capability_id, args if isinstance(args, dict) else {}),
+                            "estimated_credits": est.get("credits"),
+                            "estimate_note": est.get("note") or "",
+                            "timeout_seconds": CONFIRM_WAIT_SECONDS,
+                        }
+                    )
+                except Exception:
+                    pass
+                timed_out = False
+                try:
+                    accepted = await asyncio.wait_for(cfut, timeout=float(CONFIRM_WAIT_SECONDS))
+                except asyncio.TimeoutError:
+                    abandon_capability_confirm(ctoken)
+                    accepted = False
+                    timed_out = True
+                if not accepted:
+                    cost_confirm_cancel = True
+                    _cost_cancelled_caps.add(capability_id)
+                    cost_confirm_result_text = (
+                        "确认超时，本次调用已取消。请直接回复用户告知已取消，不要重试。" if timed_out
+                        else "用户已取消本次调用。请直接回复用户告知已取消，禁止再次调用同一能力或重试。"
+                    )
 
     t0 = time.perf_counter()
     success = True
@@ -2387,6 +2670,8 @@ async def _exec_tool(
         if not raw:
             raw = type(err).__name__ if err is not None else "UnknownError"
         low = raw.lower()
+        if isinstance(err, httpx.RemoteProtocolError):
+            return _REMOTE_DISCONNECT_USER_MSG
         if isinstance(err, (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.WriteTimeout, httpx.PoolTimeout)):
             return (
                 "请求超时：本机对话等 MCP 返回时间过长（常见于爆款TVC 整包在 MCP 内长时间轮询）。"
@@ -2408,8 +2693,20 @@ async def _exec_tool(
             return "请求超时：上游响应过慢，请稍后重试。"
         return f"工具调用失败: {raw}"
 
-    if name == "publish_content" and isinstance(args, dict):
+    if name in ("publish_content", "list_publish_accounts") and not _schedule_orchestration_active.get():
         pctx = _publish_autofill_ctx.get()
+        if pctx:
+            _user_msg = ""
+            for _m in reversed(pctx.get("messages") or []):
+                if _m.get("role") == "user" and isinstance(_m.get("content"), str):
+                    _user_msg = _m["content"].strip()
+                    break
+            if _user_msg and not _PUBLISH_INTENT_RE.search(_user_msg):
+                logger.info("[CHAT] %s 被拦截：用户消息中无发布意图", name)
+                return json.dumps(
+                    {"error": f"用户未要求发布，{name} 调用被取消。请直接回复操作结果，不要发布。"},
+                    ensure_ascii=False,
+                )
         _autofill_publish_content_missing_asset_id(args, db, user_id, pctx)
         await _normalize_publish_content_asset_id(args, db, user_id)
         if pctx:
@@ -2429,7 +2726,7 @@ async def _exec_tool(
         result_text = save_asset_shortcut
     if name == "invoke_capability" and capability_id == "task.get_result":
         pl0 = args.get("payload") if isinstance(args.get("payload"), dict) else {}
-        tid_veo = (pl0.get("task_id") or "").strip()
+        tid_veo = str(pl0.get("task_id") or "").strip()
         if tid_veo.startswith("video_"):
             skip_mcp = True
             success = False
@@ -2561,6 +2858,8 @@ async def _exec_tool(
 
     ms = round((time.perf_counter() - t0) * 1000)
     logger.info("[对话] 工具执行 name=%s capability_id=%s latency_ms=%s success=%s", name, capability_id or "-", ms, success)
+    if success and name == "list_capabilities":
+        _list_capabilities_cache.set(result_text)
     if success and name == "invoke_capability" and capability_id == "task.get_result":
         if not _is_task_result_in_progress(result_text):
             vu = _collect_video_urls_from_task_result_for_publish_context(result_text)
@@ -2575,6 +2874,16 @@ async def _exec_tool(
             "[对话] video.generate 失败，MCP 返回正文预览（含上游 error 时请看 JSON 内 message）: %s",
             (result_text[:1200] + "…") if len(result_text) > 1200 else result_text,
         )
+    _understand_has_task_id = False
+    if success and name == "invoke_capability" and capability_id in ("image.understand", "video.understand"):
+        _understand_tid = _extract_task_id_from_result(result_text)
+        if _understand_tid:
+            _understand_has_task_id = True
+            _register_generation_hint_for_task(
+                _understand_tid,
+                args.get("payload") if isinstance(args.get("payload"), dict) else {},
+                capability_id,
+            )
     urls = _URL_RE.findall(result_text)
     try:
         logs = _pending_tool_logs.get()
@@ -2598,7 +2907,9 @@ async def _exec_tool(
     }
     if capability_id is not None:
         ev_end["capability_id"] = capability_id
-    if phase:
+    if _understand_has_task_id:
+        ev_end["phase"] = "understand_submit"
+    elif phase:
         ev_end["phase"] = phase
     if phase == "task_polling":
         if capability_id == "comfly.veo":
@@ -2634,10 +2945,22 @@ async def _exec_tool(
                 ev_end.get("in_progress"),
                 _extract_status_for_log(result_text),
             )
-            # 首次轮询即终态时仅此处发 saved_assets（_poll 只在「曾进行中」后补发），避免前端收不到待 save-url 的条目
-            if success and not ev_end.get("in_progress"):
+            _tid_hint = _task_id_from_invoke_capability_args(args)
+            _orig_cap = (_generation_hints_map().get(_tid_hint, {}).get("capability_id") or "") if _tid_hint else ""
+            _is_understand = _orig_cap in ("image.understand", "video.understand")
+            if success and not ev_end.get("in_progress") and _is_understand:
+                _task_status_lower = _extract_status_for_log(result_text).strip().lower()
+                _task_failed = _task_status_lower in ("failed", "error", "cancelled", "canceled", "timeout", "expired", "失败", "错误", "取消", "超时")
+                if _task_failed:
+                    ev_end["success"] = False
+                    logger.info("[对话] task.get_result 终态为理解类能力 cap=%s 但任务失败 status=%s", _orig_cap, _task_status_lower)
+                else:
+                    ev_end["understand_text"] = (result_text or "").strip()[:2000]
+                    ev_end["media_type"] = "text"
+                    logger.info("[对话] task.get_result 终态为理解类能力 cap=%s，返回文本而非素材", _orig_cap)
+            elif success and not ev_end.get("in_progress"):
                 sse_saved = _terminal_saved_assets_for_task_result(result_text)
-                tid_poll = _task_id_from_invoke_capability_args(args)
+                tid_poll = _tid_hint
                 if sse_saved and tid_poll:
                     _apply_generation_hints_to_saved_assets(sse_saved, tid_poll)
                 if sse_saved and db is not None and user_id is not None:
@@ -2659,7 +2982,7 @@ async def _exec_tool(
         tid_sse = ""
         if capability_id == "comfly.veo":
             pl_cv_sse = args.get("payload") if isinstance(args.get("payload"), dict) else {}
-            tid_sse = (pl_cv_sse.get("task_id") or "").strip()
+            tid_sse = str(pl_cv_sse.get("task_id") or "").strip()
         elif (capability_id or "").strip() == "task.get_result":
             tid_sse = _task_id_from_invoke_capability_args(args)
         elif capability_id == "comfly.veo.daihuo_pipeline":
@@ -3410,7 +3733,7 @@ def _maybe_register_comfly_veo_submit_hint(result_text: str, invoke_args: Dict[s
         return
     if (r1.get("action") or "").strip() != "submit_video":
         return
-    tid = (r1.get("task_id") or "").strip()
+    tid = str(r1.get("task_id") or "").strip()
     if not tid:
         return
     pl_root = invoke_args.get("payload") if isinstance(invoke_args.get("payload"), dict) else {}
@@ -3448,7 +3771,7 @@ def _saved_assets_from_comfly_veo_poll_success(result_text: str) -> List[Dict[st
     st = _comfly_poll_status_from_upstream(upstream)
     if st and not _comfly_poll_status_is_terminal(st):
         return []
-    tid = (r1.get("task_id") or upstream.get("task_id") or upstream.get("id") or "").strip()
+    tid = str(r1.get("task_id") or upstream.get("task_id") or upstream.get("id") or "").strip()
     return [
         {
             "url": url,
@@ -3513,7 +3836,7 @@ def _extract_comfly_veo_task_id_from_submit_result(result_text: str) -> str:
             return ""
         if (r1.get("action") or "").strip() != "submit_video":
             return ""
-        return (r1.get("task_id") or "").strip()
+        return str(r1.get("task_id") or "").strip()
 
     t0 = _from_parsed(_parse_comfly_veo_mcp_tool_result(raw_full))
     if t0:
@@ -3549,7 +3872,7 @@ def _should_auto_poll_comfly_veo_after_submit(invoke_args: Dict[str, Any], submi
         return False
     if act != "submit_video":
         return False
-    return bool((r1.get("task_id") or "").strip())
+    return bool(str(r1.get("task_id") or "").strip())
 
 
 def _comfly_veo_poll_result_hint(result_text: str) -> str:
@@ -3604,6 +3927,9 @@ def _task_polling_final_progress_event(
 ) -> Dict[str, Any]:
     """轮询结束后补发的 tool_end：带 media_type/saved_assets，避免前端默认「视频已生成」。"""
     res = result_text or ""
+    tid = (task_id or "").strip()
+    _orig_cap = (_generation_hints_map().get(tid, {}).get("capability_id") or "") if tid else ""
+    _is_understand = _orig_cap in ("image.understand", "video.understand")
     ev: Dict[str, Any] = {
         "type": "tool_end",
         "name": name,
@@ -3611,10 +3937,20 @@ def _task_polling_final_progress_event(
         "capability_id": "task.get_result",
         "phase": "task_polling",
         "in_progress": False,
-        "media_type": _extract_media_type_from_task_result(res),
     }
+    if _is_understand:
+        _task_status_lower = _extract_status_for_log(res).strip().lower()
+        _task_failed = _task_status_lower in ("failed", "error", "cancelled", "canceled", "timeout", "expired", "失败", "错误", "取消", "超时")
+        if _task_failed:
+            ev["success"] = False
+            logger.info("[对话轮询] task.get_result 终态为理解类能力 cap=%s 但任务失败 status=%s", _orig_cap, _task_status_lower)
+        else:
+            ev["understand_text"] = (res or "").strip()[:2000]
+            ev["media_type"] = "text"
+            logger.info("[对话轮询] task.get_result 终态为理解类能力 cap=%s，返回 understand_text 而非 saved_assets", _orig_cap)
+        return ev
+    ev["media_type"] = _extract_media_type_from_task_result(res)
     saved = _terminal_saved_assets_for_task_result(res)
-    tid = (task_id or "").strip()
     if saved and tid:
         _apply_generation_hints_to_saved_assets(saved, tid)
     if saved and db is not None and user_id is not None:
@@ -3628,7 +3964,6 @@ def _task_polling_final_progress_event(
         )
     if saved:
         ev["saved_assets"] = saved
-        # 诊断：SSE 推给前端的条数；前端会对「无 asset_id」的条目各发一次 save-url
         parts: List[str] = []
         for i, it in enumerate(saved[:16]):
             if not isinstance(it, dict):
@@ -3876,12 +4211,12 @@ def _extract_task_id_from_result(result_text: str) -> str:
         if t:
             return t
         try:
-            tid = (d.get("task_id") or "").strip()
+            tid = str(d.get("task_id") or "").strip()
             if tid and _task_id_token_ok(tid):
                 return tid[:128]
             upstream = d.get("result")
             if isinstance(upstream, dict):
-                tid = (upstream.get("task_id") or "").strip()
+                tid = str(upstream.get("task_id") or "").strip()
                 if tid and _task_id_token_ok(tid):
                     return tid[:128]
                 inner_result = upstream.get("result")
@@ -3892,7 +4227,7 @@ def _extract_task_id_from_result(result_text: str) -> str:
                         if tx.startswith("{"):
                             try:
                                 obj = json.loads(tx)
-                                tid = _task_id_deep_in_obj(obj) or (obj.get("task_id") or "").strip()
+                                tid = _task_id_deep_in_obj(obj) or str(obj.get("task_id") or "").strip()
                                 if tid and _task_id_token_ok(tid):
                                     return tid[:128]
                             except Exception:
@@ -3910,7 +4245,7 @@ def _extract_task_id_from_result(result_text: str) -> str:
 
 def _task_id_from_invoke_capability_args(args: Dict[str, Any]) -> str:
     pl = args.get("payload") if isinstance(args.get("payload"), dict) else {}
-    return (pl.get("task_id") or args.get("task_id") or "").strip()
+    return str(pl.get("task_id") or args.get("task_id") or "").strip()
 
 
 async def _poll_comfly_veo_after_submit(
@@ -4010,7 +4345,7 @@ async def _poll_comfly_veo_after_submit(
     if progress_cb and entered_loop:
         try:
             await progress_cb(_comfly_veo_polling_final_progress_event(result_text=res, task_id=tid))
-            await progress_cb({"type": "status", "message": "正在生成回复…"})
+            await _maybe_progress_status_generating_reply(progress_cb)
         except Exception:
             pass
     return res
@@ -4035,11 +4370,7 @@ async def _resume_chat_task_poll_only(
         res = await _resume_daihuo_job_poll_only(
             jid, raw_token, current_user, request, progress_cb
         )
-        if progress_cb:
-            try:
-                await progress_cb({"type": "status", "message": "正在生成回复…"})
-            except Exception:
-                pass
+        await _maybe_progress_status_generating_reply(progress_cb)
         return res or ""
     if tid.startswith("video_"):
         poll_a: Dict[str, Any] = {
@@ -4113,7 +4444,7 @@ async def _resume_chat_task_poll_only(
         if progress_cb and entered_loop:
             try:
                 await progress_cb(_comfly_veo_polling_final_progress_event(result_text=res, task_id=tid))
-                await progress_cb({"type": "status", "message": "正在生成回复…"})
+                await _maybe_progress_status_generating_reply(progress_cb)
             except Exception:
                 pass
         return res or ""
@@ -4223,7 +4554,7 @@ async def _poll_task_get_result_until_terminal(
                     user_id=user_id,
                 )
             )
-            await progress_cb({"type": "status", "message": "正在生成回复…"})
+            await _maybe_progress_status_generating_reply(progress_cb)
         except Exception:
             pass
     return res
@@ -4239,22 +4570,30 @@ async def _after_generate_auto_task_result(
     db: Optional[Session] = None,
     user_id: Optional[int] = None,
 ) -> str:
-    """video/image.generate 返回 task_id 后，不依赖模型下一轮再调 task.get_result，由后端自动拉结果并轮询。"""
+    """video/image.generate 或 image/video.understand 返回 task_id 后，由后端自动拉结果并轮询。"""
+    _AUTOPOLL_CAPS = ("video.generate", "image.generate", "image.understand", "video.understand")
     cap = (invoke_args.get("capability_id") or "").strip()
-    if cap not in ("video.generate", "image.generate"):
+    if cap not in _AUTOPOLL_CAPS:
         return gen_res
     tid = _extract_task_id_from_result(gen_res)
     if not tid:
         return gen_res
+    _is_understand_cap = cap in ("image.understand", "video.understand")
     pl0 = invoke_args.get("payload") if isinstance(invoke_args.get("payload"), dict) else {}
     _register_generation_hint_for_task(tid, pl0, cap)
     if progress_cb:
         try:
-            cap_cn = "图片" if cap == "image.generate" else "视频"
+            _cap_cn_map = {
+                "image.generate": "图片",
+                "video.generate": "视频",
+                "image.understand": "图片理解结果",
+                "video.understand": "视频理解结果",
+            }
+            cap_cn = _cap_cn_map.get(cap, "内容")
             await progress_cb(
                 {
                     "type": "task_poll",
-                    "message": f"正在生成{cap_cn}…（进度约每 15 秒更新，请稍候）",
+                    "message": f"正在获取{cap_cn}…（进度约每 15 秒更新，请稍候）",
                     "task_id": tid,
                     "result_hint": "已提交任务，等待结果",
                 }
@@ -4277,9 +4616,58 @@ async def _after_generate_auto_task_result(
         db=db,
         user_id=user_id,
     )
-    return await _poll_task_get_result_until_terminal(
+    final = await _poll_task_get_result_until_terminal(
         poll_a, res, token, sutui_token, progress_cb, request, db=db, user_id=user_id
     )
+    if final and '"error"' not in final:
+        if _is_understand_cap:
+            final = final.rstrip() + (
+                "\n\n[SYSTEM] 理解结果已返回。请用简洁自然的中文告诉用户图片/视频的内容，"
+                "禁止 Markdown、禁止列表；"
+                "禁止再调用 save_asset、list_assets、task.get_result、search_models、guide 或任何其它工具。"
+            )
+        else:
+            _cap_cn_gen = "图片" if cap == "image.generate" else "视频"
+            final = final.rstrip() + (
+                f"\n\n[SYSTEM] {_cap_cn_gen}已生成完成且界面可预览。"
+                "仅用一句极短中文确认（例如「已完成」），禁止 Markdown、禁止列表、禁止复述 prompt、禁止贴图或长链接说明；"
+                "禁止再调用 save_asset、list_assets、task.get_result、search_models、guide 或任何其它工具。"
+            )
+    return final
+
+
+async def _post_openai_compat_chat_completions(
+    url: str,
+    body: Dict[str, Any],
+    hdrs: Dict[str, str],
+    *,
+    timeout: float = 120.0,
+    max_attempts: int = 4,
+) -> httpx.Response:
+    """POST /v1/chat/completions 或速推 /api/sutui-chat/completions。
+
+    线上偶发：对端在返回头之前直接断 TCP（httpx.RemoteProtocolError），常见于大 tools 轮次、
+    或与同机其它经代理的并发请求争抢链路。backend.log 曾见约 4s 即断，非读超时满 120s。
+    """
+    last_exc: Optional[BaseException] = None
+    for attempt in range(max_attempts):
+        try:
+            async with httpx.AsyncClient(timeout=timeout, trust_env=False) as c:
+                return await c.post(url, json=body, headers=hdrs)
+        except (httpx.RemoteProtocolError, httpx.ConnectError) as e:
+            last_exc = e
+            logger.warning(
+                "[CHAT] OpenAI-compat POST 瞬断，将重试 attempt=%s/%s type=%s url=%s",
+                attempt + 1,
+                max_attempts,
+                type(e).__name__,
+                (url or "")[:160],
+            )
+            if attempt + 1 >= max_attempts:
+                raise
+            await asyncio.sleep(0.35 * (2**attempt))
+    assert last_exc is not None
+    raise last_exc
 
 
 async def _chat_openai(
@@ -4315,6 +4703,9 @@ async def _chat_openai(
         }
     model = cfg["model_name"]
     use_tools = model not in _NO_TOOL_SUPPORT and bool(mcp_tools)
+    _last_user_msg_for_tools = _last_user_content(msgs)
+    _user_wants_veo = bool(re.search(r"(?:veo|tvc|带货|爆款)", _last_user_msg_for_tools, re.IGNORECASE))
+    _veo_only_tools = {"comfly.veo", "comfly.veo.daihuo_pipeline"}
     oai_tools = [
         {
             "type": "function",
@@ -4325,6 +4716,7 @@ async def _chat_openai(
             },
         }
         for t in mcp_tools
+        if _user_wants_veo or t["name"] not in _veo_only_tools
     ] if use_tools else []
 
     _ACTION_KW = re.compile(
@@ -4351,13 +4743,14 @@ async def _chat_openai(
     _ASSISTANT_COP_OUT_RE = re.compile(
         r"(暂时|目前|抱歉|对不起).{0,24}(无法|不能|不可用|不支持|没有.{0,6}功能)|"
         r"功能.{0,10}(不可用|无法|暂不可用)|"
-        r"(可能|也许).{0,16}(服务器|积分|配置|维护|故障)|"
+        r"(可能|也许).{0,16}(服务器|积分|算力|配置|维护|故障)|"
         r"没法.{0,8}(出图|生图|画图|生成)|"
         r"出不了图|生不了图",
         re.IGNORECASE,
     )
     force_tool_retry_done = False
     _generate_cap_done: set = set()
+    _publish_fail_count = 0
 
     cur = list(msgs)
     _aid_list = attachment_asset_ids if attachment_asset_ids is not None else []
@@ -4375,8 +4768,7 @@ async def _chat_openai(
             body["tools"] = oai_tools
             body["tool_choice"] = "auto"
 
-        async with httpx.AsyncClient(timeout=120.0, trust_env=False) as c:
-            resp = await c.post(url, json=body, headers=hdrs)
+        resp = await _post_openai_compat_chat_completions(url, body, hdrs, timeout=120.0)
         if resp.status_code != 200:
             _raise_api_err(resp, model=f"{cfg.get('provider','')}/{cfg.get('model_name','')}")
 
@@ -4387,22 +4779,46 @@ async def _chat_openai(
         if tcs:
             cur.append(msg)
             last_user_content = _last_user_content(cur)
+            _round_wants_publish = _openai_round_has_publish_intent(tcs, last_user_content)
+            if _round_wants_publish:
+                logger.info("[CHAT] publish_intent=True last_user_content=%s", (last_user_content or "")[:200])
+            terminal_saved_after_gen: Optional[List[Dict[str, Any]]] = None
+            gen_cap_for_reply = ""
             for tc in tcs:
                 fn = tc.get("function", {})
                 try:
                     a = json.loads(fn.get("arguments", "{}"))
                 except Exception:
                     a = {}
+                _mismatch_err = None
                 if fn.get("name") == "invoke_capability":
                     a = _correct_video_to_image_if_user_asked_image(a, last_user_content)
-                    _inject_video_media_urls(a, attachment_urls)
-                    _infer_video_model_from_user_text(a, last_user_content, bool(attachment_urls))
-                    _resolve_video_payload_asset_ids_to_urls(a, request, db, user_id)
-                    _ensure_image_generate_default_model(a)
-                    _ensure_image_generate_prompt_and_aspect(a, last_user_content)
-                    _ensure_daihuo_pipeline_asset_or_url(a, attachment_asset_ids, attachment_urls)
+                    _mismatch_err = _detect_model_capability_mismatch(a)
+                    if not _mismatch_err:
+                        _inject_video_media_urls(a, attachment_urls)
+                        _infer_video_model_from_user_text(a, last_user_content, bool(attachment_urls))
+                        _resolve_video_payload_asset_ids_to_urls(a, request, db, user_id)
+                        _normalize_model_alias(a)
+                        _ensure_image_generate_default_model(a)
+                        _ensure_video_generate_default_model(a)
+                        _ensure_image_generate_prompt_and_aspect(a, last_user_content)
+                        _ensure_daihuo_pipeline_asset_or_url(a, attachment_asset_ids, attachment_urls)
                 logger.info("[CHAT] tool_call: %s(%s)", fn.get("name"), list(a.keys()))
-                _cap_id = (a.get("capability_id") or "").strip() if fn.get("name") == "invoke_capability" else ""
+                if fn.get("name") == "publish_content" and _publish_fail_count >= 1:
+                    logger.warning("[CHAT] publish_content 已失败 %d 次，拦截重试", _publish_fail_count)
+                    res = json.dumps(
+                        {"error": "发布已经失败过，请不要再重试。请直接告诉用户发布未成功，稍后可手动重试。"},
+                        ensure_ascii=False,
+                    )
+                    cur.append({"role": "tool", "tool_call_id": tc.get("id", ""), "content": res})
+                    continue
+                if fn.get("name") == "invoke_capability":
+                    _cap_id = (a.get("capability_id") or "").strip()
+                    if not _cap_id:
+                        _pl_inner = a.get("payload") if isinstance(a.get("payload"), dict) else {}
+                        _cap_id = (_pl_inner.get("capability_id") or "").strip()
+                else:
+                    _cap_id = ""
                 if fn.get("name") == "invoke_capability" and _cap_id == "media.edit":
                     pl0 = a.get("payload") if isinstance(a.get("payload"), dict) else {}
                     logger.info(
@@ -4410,7 +4826,10 @@ async def _chat_openai(
                         pl0.get("operation"),
                         pl0.get("asset_id"),
                     )
-                if _cap_id in _generate_cap_done:
+                if _mismatch_err:
+                    logger.warning("[CHAT] 模型/能力类型不匹配: %s", _mismatch_err)
+                    res = json.dumps({"error": _mismatch_err}, ensure_ascii=False)
+                elif _cap_id in _generate_cap_done:
                     logger.warning("[CHAT] 拦截重复 %s 调用 rnd=%d（本轮已调用或取消过）", _cap_id, rnd)
                     res = '{"error": "本轮对话已调用或取消过 ' + _cap_id + '，禁止重复调用。请直接回复用户。"}'
                 else:
@@ -4424,13 +4843,15 @@ async def _chat_openai(
                         db=db,
                         user_id=user_id,
                     )
-                    if _cap_id in ("image.generate", "video.generate"):
+                    if _cap_id in ("image.generate", "video.generate", "sutui.search_models", "sutui.guide") and res and '"error"' not in res:
                         _generate_cap_done.add(_cap_id)
                 if fn.get("name") == "invoke_capability" and (a.get("capability_id") or "").strip() == "media.edit":
                     logger.info(
                         "[CHAT] media.edit result preview=%s",
                         (res or "")[:800],
                     )
+                    if res and '"error"' not in res:
+                        res = res.rstrip() + '\n\n[SYSTEM] 素材编辑已完成。请立即向用户展示结果（asset_id 和预览链接），不要再调用其他工具、不要发布、不要理解图片。'
                 if fn.get("name") == "invoke_capability":
                     res = await _after_generate_auto_task_result(
                         a, res, token, sutui_token, progress_cb, request, db=db, user_id=user_id
@@ -4452,6 +4873,87 @@ async def _chat_openai(
                     "tool_call_id": tc.get("id", ""),
                     "content": res,
                 })
+                if fn.get("name") == "publish_content" and res and "执行失败" in res:
+                    _publish_fail_count += 1
+                    logger.info("[CHAT] publish_content 失败计数: %d", _publish_fail_count)
+                # 记录「生成类」终态 saved_assets，供本轮结束后决定是否提前返回（须排除「生成并发布」同句编排）。
+                if (
+                    fn.get("name") == "invoke_capability"
+                    and _cap_id in ("image.generate", "video.generate")
+                    and res
+                    and '"error"' not in res
+                ):
+                    try:
+                        sse_saved = _terminal_saved_assets_for_task_result(res or "")
+                    except Exception as _e_saved:
+                        logger.warning("[CHAT] early_finish saved_assets 提取异常: %s", _e_saved)
+                        sse_saved = []
+                    logger.info(
+                        "[CHAT] early_finish 诊断: cap=%s sse_saved_count=%s has_system=%s res_len=%s",
+                        _cap_id,
+                        len(sse_saved) if sse_saved else 0,
+                        "\\n\\n[SYSTEM]" in (res or ""),
+                        len(res or ""),
+                    )
+                    if sse_saved:
+                        terminal_saved_after_gen = sse_saved
+                        gen_cap_for_reply = _cap_id
+            # ── publish_content 成功后提前结束（避免再调 LLM 导致 ReadTimeout） ──
+            _round_publish_ok = False
+            for _tc_check in tcs:
+                _fn_check = _tc_check.get("function", {})
+                _tc_res = None
+                for _m in cur:
+                    if _m.get("role") == "tool" and _m.get("tool_call_id") == _tc_check.get("id"):
+                        _tc_res = _m.get("content", "")
+                        break
+                if (
+                    _fn_check.get("name") == "publish_content"
+                    and _tc_res is not None
+                    and "执行失败" not in _tc_res
+                    and '"status": "success"' in _tc_res
+                ):
+                    _round_publish_ok = True
+                    break
+            logger.info(
+                "[CHAT] early_finish 条件: enabled=%s publish=%s saved=%s cap=%s publish_ok=%s",
+                _lobster_chat_generation_early_finish_enabled(),
+                _round_wants_publish,
+                bool(terminal_saved_after_gen),
+                gen_cap_for_reply,
+                _round_publish_ok,
+            )
+            if _round_publish_ok and _lobster_chat_generation_early_finish_enabled():
+                logger.info("[CHAT] early_finish 触发: publish_content 成功，跳过后续 LLM 轮次")
+                return "已完成。" if _lobster_chat_generation_reply_minimal() else "内容已发布成功。"
+            if (
+                _lobster_chat_generation_early_finish_enabled()
+                and not _round_wants_publish
+                and terminal_saved_after_gen
+                and gen_cap_for_reply in ("image.generate", "video.generate")
+            ):
+                logger.info("[CHAT] early_finish 触发: cap=%s", gen_cap_for_reply)
+                sse_saved = terminal_saved_after_gen
+                if db is not None and user_id is not None:
+                    try:
+                        _enrich_saved_assets_asset_ids_from_db(sse_saved, db, int(user_id))
+                    except Exception:
+                        pass
+                kind = "图片" if gen_cap_for_reply == "image.generate" else "视频"
+                first = sse_saved[0] if isinstance(sse_saved[0], dict) else {}
+                aid = (first.get("asset_id") or "").strip() if isinstance(first, dict) else ""
+                url = (first.get("source_url") or first.get("url") or "").strip() if isinstance(first, dict) else ""
+                lines = [_early_finish_generation_user_reply(kind)]
+                if not _lobster_chat_generation_reply_minimal():
+                    if aid:
+                        lines.append(f"asset_id: {aid}")
+                    if url:
+                        lines.append(f"预览: {url}")
+                return "\n".join(lines).strip()
+            _cc = _cost_cancelled_caps_ctx.get()
+            if _cc and not _schedule_orchestration_active.get():
+                logger.info("[CHAT] 积分确认被取消（%s），跳过后续轮次", _cc)
+                return "操作已取消。"
             continue
 
         content = (msg.get("content") or "").strip()
@@ -4464,18 +4966,45 @@ async def _chat_openai(
             cur.append({"role": "assistant", "content": preamble or "正在调用工具..."})
             results = []
             last_user_content = _last_user_content(cur)
+            round_wants_publish_tc = _user_text_requests_publish(last_user_content)
+            terminal_saved_after_gen_tc: Optional[List[Dict[str, Any]]] = None
+            gen_cap_for_reply_tc = ""
             for tc_info in text_calls:
+                if not isinstance(tc_info.get("arguments"), dict):
+                    tc_info["arguments"] = {}
+                _mismatch_err_tc = None
                 if tc_info["name"] == "invoke_capability":
                     tc_info["arguments"] = _correct_video_to_image_if_user_asked_image(tc_info["arguments"], last_user_content)
-                    _inject_video_media_urls(tc_info["arguments"], attachment_urls)
-                    _infer_video_model_from_user_text(tc_info["arguments"], last_user_content, bool(attachment_urls))
-                    _resolve_video_payload_asset_ids_to_urls(tc_info["arguments"], request, db, user_id)
-                    _ensure_image_generate_default_model(tc_info["arguments"])
-                    _ensure_image_generate_prompt_and_aspect(tc_info["arguments"], last_user_content)
-                    _ensure_daihuo_pipeline_asset_or_url(tc_info["arguments"], attachment_asset_ids, attachment_urls)
+                    _mismatch_err_tc = _detect_model_capability_mismatch(tc_info["arguments"])
+                    if not _mismatch_err_tc:
+                        _inject_video_media_urls(tc_info["arguments"], attachment_urls)
+                        _infer_video_model_from_user_text(tc_info["arguments"], last_user_content, bool(attachment_urls))
+                        _resolve_video_payload_asset_ids_to_urls(tc_info["arguments"], request, db, user_id)
+                        _normalize_model_alias(tc_info["arguments"])
+                        _ensure_image_generate_default_model(tc_info["arguments"])
+                        _ensure_video_generate_default_model(tc_info["arguments"])
+                        _ensure_image_generate_prompt_and_aspect(tc_info["arguments"], last_user_content)
+                        _ensure_daihuo_pipeline_asset_or_url(tc_info["arguments"], attachment_asset_ids, attachment_urls)
                 logger.info("[CHAT] text_tool_call: %s(%s)", tc_info["name"], list(tc_info["arguments"].keys()))
                 ta = tc_info["arguments"]
-                _tc_cap = (ta.get("capability_id") or "").strip() if tc_info["name"] == "invoke_capability" else ""
+                if not isinstance(ta, dict):
+                    ta = {}
+                _nm_tc = (tc_info.get("name") or "").strip()
+                round_wants_publish_tc = round_wants_publish_tc or _openai_tool_call_requests_publish(_nm_tc, ta)
+                if _nm_tc == "publish_content" and _publish_fail_count >= 1:
+                    logger.warning("[CHAT] text_calls publish_content 已失败 %d 次，拦截重试", _publish_fail_count)
+                    results.append(f"[{tc_info['name']}] " + json.dumps(
+                        {"error": "发布已经失败过，请不要再重试。请直接告诉用户发布未成功，稍后可手动重试。"},
+                        ensure_ascii=False,
+                    ))
+                    continue
+                if tc_info["name"] == "invoke_capability":
+                    _tc_cap = (ta.get("capability_id") or "").strip()
+                    if not _tc_cap:
+                        _pl_inner_tc = ta.get("payload") if isinstance(ta.get("payload"), dict) else {}
+                        _tc_cap = (_pl_inner_tc.get("capability_id") or "").strip()
+                else:
+                    _tc_cap = ""
                 if tc_info["name"] == "invoke_capability" and _tc_cap == "media.edit":
                     pl1 = ta.get("payload") if isinstance(ta.get("payload"), dict) else {}
                     logger.info(
@@ -4483,7 +5012,10 @@ async def _chat_openai(
                         pl1.get("operation"),
                         pl1.get("asset_id"),
                     )
-                if _tc_cap in _generate_cap_done:
+                if _mismatch_err_tc:
+                    logger.warning("[CHAT] 模型/能力类型不匹配: %s", _mismatch_err_tc)
+                    res = json.dumps({"error": _mismatch_err_tc}, ensure_ascii=False)
+                elif _tc_cap in _generate_cap_done:
                     logger.warning("[CHAT] 拦截重复 %s(text_calls) rnd=%d", _tc_cap, rnd)
                     res = '{"error": "本轮对话已调用或取消过 ' + _tc_cap + '，禁止重复调用。请直接回复用户。"}'
                 else:
@@ -4497,13 +5029,15 @@ async def _chat_openai(
                         db=db,
                         user_id=user_id,
                     )
-                    if _tc_cap in ("image.generate", "video.generate"):
+                    if _tc_cap in ("image.generate", "video.generate") and res and '"error"' not in res:
                         _generate_cap_done.add(_tc_cap)
                 if tc_info["name"] == "invoke_capability" and (ta.get("capability_id") or "").strip() == "media.edit":
                     logger.info(
                         "[CHAT] media.edit result preview=%s",
                         (res or "")[:800],
                     )
+                    if res and '"error"' not in res:
+                        res = res.rstrip() + '\n\n[SYSTEM] 素材编辑已完成。请立即向用户展示结果（asset_id 和预览链接），不要再调用其他工具、不要发布、不要理解图片。'
                 if tc_info["name"] == "invoke_capability":
                     res = await _after_generate_auto_task_result(
                         tc_info["arguments"], res, token, sutui_token, progress_cb, request, db=db, user_id=user_id
@@ -4529,8 +5063,72 @@ async def _chat_openai(
                     res = await _poll_task_get_result_until_terminal(
                         tc_info["arguments"], res, token, sutui_token, progress_cb, request, db=db, user_id=user_id
                     )
+                if (
+                    tc_info["name"] == "invoke_capability"
+                    and _tc_cap in ("image.generate", "video.generate")
+                    and res
+                    and '"error"' not in res
+                ):
+                    try:
+                        sse_saved_tc = _terminal_saved_assets_for_task_result(res or "")
+                    except Exception:
+                        sse_saved_tc = []
+                    if sse_saved_tc:
+                        terminal_saved_after_gen_tc = sse_saved_tc
+                        gen_cap_for_reply_tc = _tc_cap
+                if tc_info["name"] == "publish_content" and res and "执行失败" in res:
+                    _publish_fail_count += 1
+                    logger.info("[CHAT] text_calls publish_content 失败计数: %d", _publish_fail_count)
                 results.append(f"[{tc_info['name']}] {res}")
+            # publish_content 成功后也应提前结束（text_calls 路径）
+            _tc_publish_ok = any(
+                tc_info["name"] == "publish_content"
+                and f"[{tc_info['name']}]" in r
+                and "执行失败" not in r
+                and '"status": "success"' in r
+                for tc_info, r in zip(text_calls, results)
+                if tc_info["name"] == "publish_content"
+            )
+            if _tc_publish_ok and _lobster_chat_generation_early_finish_enabled():
+                logger.info("[CHAT] early_finish 触发: text_calls publish_content 成功")
+                return "已完成。" if _lobster_chat_generation_reply_minimal() else "内容已发布成功。"
+            # 与原生 tool_calls 一致：正文里嵌工具（速推常见）时也要能提前结束，否则会再跑一轮 LLM → 重复 save/list + 长文案
+            if (
+                _lobster_chat_generation_early_finish_enabled()
+                and not round_wants_publish_tc
+                and terminal_saved_after_gen_tc
+                and gen_cap_for_reply_tc in ("image.generate", "video.generate")
+            ):
+                sse_saved = terminal_saved_after_gen_tc
+                if db is not None and user_id is not None:
+                    try:
+                        _enrich_saved_assets_asset_ids_from_db(sse_saved, db, int(user_id))
+                    except Exception:
+                        pass
+                kind = "图片" if gen_cap_for_reply_tc == "image.generate" else "视频"
+                first = sse_saved[0] if isinstance(sse_saved[0], dict) else {}
+                aid = (first.get("asset_id") or "").strip() if isinstance(first, dict) else ""
+                url = (first.get("source_url") or first.get("url") or "").strip() if isinstance(first, dict) else ""
+                lines = [_early_finish_generation_user_reply(kind)]
+                if not _lobster_chat_generation_reply_minimal():
+                    if aid:
+                        lines.append(f"asset_id: {aid}")
+                    if url:
+                        lines.append(f"预览: {url}")
+                cur.append(
+                    {
+                        "role": "user",
+                        "content": "工具调用结果:\n"
+                        + "\n\n".join(results)
+                        + "\n\n[SYSTEM] 生成已结束，请不要再调用任何工具；仅用一句极短中文回复用户。",
+                    }
+                )
+                return "\n".join(lines).strip()
             cur.append({"role": "user", "content": "工具调用结果:\n" + "\n\n".join(results) + "\n\n请根据以上结果回答用户。"})
+            _cc2 = _cost_cancelled_caps_ctx.get()
+            if _cc2 and not _schedule_orchestration_active.get():
+                logger.info("[CHAT] 积分确认被取消（text_calls, %s），跳过后续轮次", _cc2)
+                return "操作已取消。"
             continue
 
         # 编排模式下 round 0 无 tool_calls 时无条件强制重试（tool_choice=required），不依赖正则匹配
@@ -4567,8 +5165,7 @@ async def _chat_openai(
                 "model": model, "messages": cur, "stream": False,
                 "tools": oai_tools, "tool_choice": "required",
             }
-            async with httpx.AsyncClient(timeout=120.0, trust_env=False) as c:
-                resp2 = await c.post(url, json=body_retry, headers=hdrs)
+            resp2 = await _post_openai_compat_chat_completions(url, body_retry, hdrs, timeout=120.0)
             if resp2.status_code == 200:
                 choice2 = (resp2.json().get("choices") or [{}])[0]
                 msg2 = choice2.get("message", {})
@@ -4583,17 +5180,25 @@ async def _chat_openai(
                             a = json.loads(fn.get("arguments", "{}"))
                         except Exception:
                             a = {}
+                        _mismatch_err_fc = None
                         if fn.get("name") == "invoke_capability":
                             a = _correct_video_to_image_if_user_asked_image(a, last_user_content)
-                            _inject_video_media_urls(a, attachment_urls)
-                            _infer_video_model_from_user_text(a, last_user_content, bool(attachment_urls))
-                            _resolve_video_payload_asset_ids_to_urls(a, request, db, user_id)
-                            _ensure_image_generate_default_model(a)
-                            _ensure_image_generate_prompt_and_aspect(a, last_user_content)
-                            _ensure_daihuo_pipeline_asset_or_url(a, attachment_asset_ids, attachment_urls)
+                            _mismatch_err_fc = _detect_model_capability_mismatch(a)
+                            if not _mismatch_err_fc:
+                                _inject_video_media_urls(a, attachment_urls)
+                                _infer_video_model_from_user_text(a, last_user_content, bool(attachment_urls))
+                                _resolve_video_payload_asset_ids_to_urls(a, request, db, user_id)
+                                _normalize_model_alias(a)
+                                _ensure_image_generate_default_model(a)
+                                _ensure_video_generate_default_model(a)
+                                _ensure_image_generate_prompt_and_aspect(a, last_user_content)
+                                _ensure_daihuo_pipeline_asset_or_url(a, attachment_asset_ids, attachment_urls)
                         logger.info("[CHAT] tool_call(forced): %s(%s)", fn.get("name"), list(a.keys()))
                         _fc_cap = (a.get("capability_id") or "").strip() if fn.get("name") == "invoke_capability" else ""
-                        if _fc_cap in _generate_cap_done:
+                        if _mismatch_err_fc:
+                            logger.warning("[CHAT] 模型/能力类型不匹配(forced): %s", _mismatch_err_fc)
+                            res = json.dumps({"error": _mismatch_err_fc}, ensure_ascii=False)
+                        elif _fc_cap in _generate_cap_done:
                             logger.warning("[CHAT] 拦截重复 %s(forced) rnd=%d", _fc_cap, rnd)
                             res = '{"error": "本轮对话已调用或取消过 ' + _fc_cap + '，禁止重复调用。请直接回复用户。"}'
                         else:
@@ -4607,7 +5212,7 @@ async def _chat_openai(
                                 db=db,
                                 user_id=user_id,
                             )
-                            if _fc_cap in ("image.generate", "video.generate"):
+                            if _fc_cap in ("image.generate", "video.generate") and res and '"error"' not in res:
                                 _generate_cap_done.add(_fc_cap)
                         if fn.get("name") == "invoke_capability":
                             res = await _after_generate_auto_task_result(
@@ -4650,7 +5255,9 @@ async def _chat_openai(
             _inject_video_media_urls(auto_args, attachment_urls)
             _infer_video_model_from_user_text(auto_args, last_user_msg, bool(attachment_urls))
             _resolve_video_payload_asset_ids_to_urls(auto_args, request, db, user_id)
+            _normalize_model_alias(auto_args)
             _ensure_image_generate_default_model(auto_args)
+            _ensure_video_generate_default_model(auto_args)
             _ensure_image_generate_prompt_and_aspect(auto_args, last_user_msg)
             _ensure_daihuo_pipeline_asset_or_url(auto_args, attachment_asset_ids, attachment_urls)
             res = await _exec_tool(
@@ -4673,6 +5280,9 @@ async def _chat_openai(
                 db=db,
                 user_id=user_id,
             )
+            _fb_cap = (auto_args.get("capability_id") or "").strip()
+            if _fb_cap in ("image.generate", "video.generate") and res and '"error"' not in res:
+                _generate_cap_done.add(_fb_cap)
             cur.append({"role": "assistant", "content": content or "（系统已代为发起文生图，以下为工具返回。）"})
             cur.append({
                 "role": "user",
@@ -4744,6 +5354,7 @@ async def _chat_anthropic(
 
     _aid_list_a = attachment_asset_ids if attachment_asset_ids is not None else []
     _max_rounds_a = _effective_max_tool_rounds()
+    _generate_cap_done_a: set = set()
     for rnd in range(_max_rounds_a):
         _publish_autofill_ctx.set(
             {
@@ -4779,25 +5390,44 @@ async def _chat_anthropic(
             last_user_content = _last_user_content(ant_msgs)
             for tu in tus:
                 inp = dict(tu.get("input") or {})
+                _mismatch_err_a = None
                 if tu.get("name") == "invoke_capability":
                     inp = _correct_video_to_image_if_user_asked_image(inp, last_user_content)
-                    _inject_video_media_urls(inp, attachment_urls)
-                    _infer_video_model_from_user_text(inp, last_user_content, bool(attachment_urls))
-                    _resolve_video_payload_asset_ids_to_urls(inp, request, db, user_id)
-                    _ensure_image_generate_default_model(inp)
-                    _ensure_image_generate_prompt_and_aspect(inp, last_user_content)
-                    _ensure_daihuo_pipeline_asset_or_url(inp, attachment_asset_ids, attachment_urls)
+                    _mismatch_err_a = _detect_model_capability_mismatch(inp)
+                    if not _mismatch_err_a:
+                        _inject_video_media_urls(inp, attachment_urls)
+                        _infer_video_model_from_user_text(inp, last_user_content, bool(attachment_urls))
+                        _resolve_video_payload_asset_ids_to_urls(inp, request, db, user_id)
+                        _normalize_model_alias(inp)
+                        _ensure_image_generate_default_model(inp)
+                        _ensure_video_generate_default_model(inp)
+                        _ensure_image_generate_prompt_and_aspect(inp, last_user_content)
+                        _ensure_daihuo_pipeline_asset_or_url(inp, attachment_asset_ids, attachment_urls)
                 logger.info("tool_call: %s", tu["name"])
-                r = await _exec_tool(
-                    tu["name"],
-                    inp,
-                    token,
-                    sutui_token,
-                    progress_cb=progress_cb,
-                    request=request,
-                    db=db,
-                    user_id=user_id,
-                )
+                _a_cap = (inp.get("capability_id") or "").strip() if tu.get("name") == "invoke_capability" else ""
+                if _mismatch_err_a:
+                    logger.warning("[CHAT-ANT] 模型/能力类型不匹配: %s", _mismatch_err_a)
+                    r = json.dumps({"error": _mismatch_err_a}, ensure_ascii=False)
+                elif _a_cap in _generate_cap_done_a:
+                    logger.warning("[CHAT-ANT] 拦截重复 %s rnd=%d", _a_cap, rnd)
+                    r = '{"error": "本轮对话已调用或取消过 ' + _a_cap + '，禁止重复调用。请直接回复用户。"}'
+                else:
+                    r = await _exec_tool(
+                        tu["name"],
+                        inp,
+                        token,
+                        sutui_token,
+                        progress_cb=progress_cb,
+                        request=request,
+                        db=db,
+                        user_id=user_id,
+                    )
+                    if _a_cap in ("image.generate", "video.generate", "sutui.search_models", "sutui.guide") and r and '"error"' not in r:
+                        _generate_cap_done_a.add(_a_cap)
+                if tu.get("name") == "invoke_capability" and _a_cap == "media.edit":
+                    logger.info("[CHAT-ANT] media.edit result preview=%s", (r or "")[:800])
+                    if r and '"error"' not in r:
+                        r = r.rstrip() + '\n\n[SYSTEM] 素材编辑已完成。请立即向用户展示结果（asset_id 和预览链接），不要再调用其他工具、不要发布、不要理解图片。'
                 if tu.get("name") == "invoke_capability":
                     r = await _after_generate_auto_task_result(
                         inp, r, token, sutui_token, progress_cb, request, db=db, user_id=user_id
@@ -4819,6 +5449,10 @@ async def _chat_anthropic(
                     "tool_use_id": tu["id"],
                     "content": r,
                 })
+            _cc_a = _cost_cancelled_caps_ctx.get()
+            if _cc_a and not _schedule_orchestration_active.get():
+                logger.info("[CHAT-ANT] 积分确认被取消（%s），跳过后续轮次", _cc_a)
+                return "操作已取消。"
             ant_msgs.append({"role": "user", "content": results})
             continue
 
@@ -5134,10 +5768,12 @@ async def chat_endpoint(
     db: Session = Depends(get_db),
 ):
     _pending_tool_logs.set([])
+    _list_capabilities_cache.set(None)
     want_orch_report = bool(getattr(payload, "orchestration_report", False))
     _orch_tok = _orchestration_tool_log.set([] if want_orch_report else None)
     is_schedule_orch = bool(getattr(payload, "schedule_orchestration", False))
     _sched_tok = _schedule_orchestration_active.set(is_schedule_orch)
+    _cost_cancelled_caps_ctx.set(set())
 
     _oc_pfx_rest, _oc_pfx_hit = _strip_openclaw_chat_prefix(payload.message)
     if _oc_pfx_hit:
@@ -5202,6 +5838,8 @@ async def chat_endpoint(
     for m in (payload.history or []):
         if m.role in ("user", "assistant") and (m.content or "").strip():
             content = m.content.strip()
+            if m.role == "assistant" and content.startswith("错误："):
+                continue
             if len(content) > MAX_HISTORY_MESSAGE_CHARS:
                 content = (
                     content[: MAX_HISTORY_MESSAGE_CHARS // 2].rstrip()
@@ -5386,6 +6024,7 @@ async def _chat_stream_events(
 
     async def run_chat() -> None:
         _pending_tool_logs.set([])
+        _list_capabilities_cache.set(None)
         resume_tid = (getattr(payload, "resume_task_poll_task_id", None) or "").strip()
         if resume_tid:
             result_text = ""
@@ -5408,7 +6047,7 @@ async def _chat_stream_events(
                 error_holder.append(e.detail if isinstance(e.detail, str) else str(e.detail))
             except Exception as e:
                 logger.exception("[CHAT/stream] resume_task_poll")
-                error_holder.append(str(e))
+                error_holder.append(_friendly_chat_stream_exception(e))
             fe = error_holder[0] if error_holder else None
             if fe:
                 fr = f"错误：{fe}"
@@ -5428,6 +6067,7 @@ async def _chat_stream_events(
         mcp_tools = await _fetch_mcp_tools(raw_token)
         _is_sched_orch = bool(getattr(payload, "schedule_orchestration", False))
         _schedule_orchestration_active.set(_is_sched_orch)
+        _cost_cancelled_caps_ctx.set(set())
         _review_prompt_drafts_only_active.set(bool(getattr(payload, "review_prompt_drafts_only", False)))
         direct_llm = bool(getattr(payload, "direct_llm", False))
         if direct_llm:
@@ -5460,6 +6100,8 @@ async def _chat_stream_events(
         for m in (payload.history or []):
             if m.role in ("user", "assistant") and (m.content or "").strip():
                 content = m.content.strip()
+                if m.role == "assistant" and content.startswith("错误："):
+                    continue
                 if len(content) > MAX_HISTORY_MESSAGE_CHARS:
                     content = (
                         content[: MAX_HISTORY_MESSAGE_CHARS // 2].rstrip()
@@ -5602,7 +6244,7 @@ async def _chat_stream_events(
                 error_holder.append(e.detail if isinstance(e.detail, str) else str(e.detail))
             except Exception as e:
                 logger.exception("chat/stream run_chat error")
-                error_holder.append(str(e))
+                error_holder.append(_friendly_chat_stream_exception(e))
         final_reply = reply_holder[0] if reply_holder else ""
         final_error = error_holder[0] if error_holder else None
         if final_error:
