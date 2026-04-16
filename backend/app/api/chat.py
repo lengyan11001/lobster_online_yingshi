@@ -36,19 +36,37 @@ from ..services.capability_cost_confirm import invoke_should_prompt_cost_confirm
 from .mcp_gateway import set_mcp_token_for_agent
 
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
-_COMFLY_PRICING_PATH = _BASE_DIR / "comfly_pricing.json"
 
 logger = logging.getLogger(__name__)
 
+_comfly_image_models_cache: list[str] = []
+_comfly_image_models_ts: float = 0
+_COMFLY_CACHE_TTL = 600  # 10 minutes
+
 
 def _get_comfly_image_models() -> list[str]:
-    """Return Comfly image model IDs from comfly_pricing.json (dalle format = image models)."""
+    """Fetch Comfly image model IDs from server /capabilities/comfly-pricing, cached with TTL."""
+    global _comfly_image_models_cache, _comfly_image_models_ts
+    now = time.time()
+    if _comfly_image_models_cache and (now - _comfly_image_models_ts) < _COMFLY_CACHE_TTL:
+        return _comfly_image_models_cache
+    auth_base = (getattr(settings, "auth_server_base", None) or "").strip().rstrip("/")
+    if not auth_base:
+        return _comfly_image_models_cache
     try:
-        data = json.loads(_COMFLY_PRICING_PATH.read_text(encoding="utf-8"))
-        models = data.get("models") or {}
-        return [k for k, v in models.items() if isinstance(v, dict) and v.get("api_format") == "dalle"]
-    except Exception:
-        return []
+        import httpx as _hx
+        r = _hx.get(f"{auth_base}/capabilities/comfly-pricing", timeout=5.0)
+        if r.status_code == 200:
+            data = r.json()
+            models = data.get("models") or {}
+            result = [k for k, v in models.items() if isinstance(v, dict) and v.get("api_format") == "dalle"]
+            _comfly_image_models_cache = result
+            _comfly_image_models_ts = now
+            logger.debug("[CHAT] comfly image models refreshed: %s", result)
+            return result
+    except Exception as e:
+        logger.debug("[CHAT] comfly-pricing fetch failed: %s", e)
+    return _comfly_image_models_cache
 router = APIRouter()
 
 # chat/stream 与工具链遇 httpx 对端掐连接时的统一用户文案（避免界面直接显示英文 RemoteProtocolError）
