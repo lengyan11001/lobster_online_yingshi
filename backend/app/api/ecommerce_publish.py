@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..models import Asset, PublishAccount
+from ..models import Asset, EcommerceDetailJob, PublishAccount
 from .auth import _ServerUser, get_current_user_for_local
 from .publish import BROWSER_DATA_DIR, browser_options_from_publish_meta
 
@@ -240,3 +240,69 @@ async def open_product_form(
                 os.unlink(tf)
             except Exception:
                 pass
+
+
+class PublishFromJobBody(BaseModel):
+    job_id: str = Field(..., description="电商详情图 pipeline job_id")
+    platform: str = Field("douyin_shop", description="电商平台 ID")
+    account_nickname: Optional[str] = Field(None, description="店铺账号昵称")
+    title: Optional[str] = Field(None, description="商品标题（不传则从 job 分析结果中提取）")
+
+
+def _extract_asset_ids_from_suite(saved_assets: Dict[str, Any], category: str) -> List[str]:
+    bundle = saved_assets.get("suite_bundle") if isinstance(saved_assets.get("suite_bundle"), dict) else {}
+    items = bundle.get(category, [])
+    if not isinstance(items, list):
+        return []
+    return [str(it.get("asset_id")) for it in items if isinstance(it, dict) and it.get("asset_id")]
+
+
+@router.post("/api/ecommerce-publish/from-job", summary="从电商详情图 job 一键打开商品发布页")
+async def publish_from_job(
+    body: PublishFromJobBody,
+    current_user: _ServerUser = Depends(get_current_user_for_local),
+    db: Session = Depends(get_db),
+):
+    from ..services.comfly_ecommerce_detail_job_store import get_job as get_mem_job
+
+    job_id = (body.job_id or "").strip().lower()
+    if not job_id:
+        raise HTTPException(400, detail="job_id 不能为空")
+
+    saved_assets: Optional[Dict[str, Any]] = None
+    product_name: Optional[str] = None
+
+    mem_job = get_mem_job(job_id)
+    if mem_job and mem_job.get("status") == "completed":
+        saved_assets = mem_job.get("saved_assets")
+        result = mem_job.get("result") or {}
+        analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+        product_name = str(analysis.get("product_name") or "").strip()
+
+    if saved_assets is None:
+        db_job = db.query(EcommerceDetailJob).filter(EcommerceDetailJob.job_id == job_id).first()
+        if not db_job:
+            raise HTTPException(404, detail=f"未找到 job_id={job_id}")
+        if db_job.status != "completed":
+            raise HTTPException(400, detail=f"Job 尚未完成（状态: {db_job.status}）")
+        saved_assets = db_job.saved_assets or {}
+        product_name = product_name or db_job.product_name or ""
+
+    main_ids = _extract_asset_ids_from_suite(saved_assets, "main_images")
+    detail_ids = _extract_asset_ids_from_suite(saved_assets, "detail_images")
+    if not detail_ids:
+        pages = saved_assets.get("pages", [])
+        if isinstance(pages, list):
+            detail_ids = [str(p.get("asset_id")) for p in pages if isinstance(p, dict) and p.get("asset_id")]
+
+    title = body.title or product_name or None
+
+    form_body = OpenProductFormBody(
+        platform=body.platform,
+        account_nickname=body.account_nickname,
+        title=title,
+        main_image_asset_ids=main_ids,
+        detail_image_asset_ids=detail_ids,
+    )
+
+    return await open_product_form(form_body, current_user=current_user, db=db)

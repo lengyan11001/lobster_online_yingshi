@@ -108,6 +108,14 @@ class DouyinShopDriver(BaseDriver):
                 except Exception as e:
                     logger.warning("[DOUYIN-SHOP] upload main images failed: %s", e)
 
+            if detail_image_paths:
+                try:
+                    await self._upload_detail_images(page, detail_image_paths)
+                    filled.append(f"详情图({len(detail_image_paths)}张)")
+                    logger.info("[DOUYIN-SHOP] uploaded %d detail images", len(detail_image_paths))
+                except Exception as e:
+                    logger.warning("[DOUYIN-SHOP] upload detail images failed: %s", e)
+
             msg_parts = ["已打开抖店商品创建页面"]
             if filled:
                 msg_parts.append(f"已自动填充: {', '.join(filled)}")
@@ -117,3 +125,37 @@ class DouyinShopDriver(BaseDriver):
         except Exception as e:
             logger.exception("[DOUYIN-SHOP] open_product_form failed")
             return {"ok": False, "error": str(e)}
+
+    async def _upload_detail_images(self, page: Any, paths: List[str]) -> None:
+        """在抖店商品编辑页的「商品详情」富文本区域上传图片。
+
+        抖店的详情编辑器一般有一个「图片」按钮，点击后弹出文件选择。
+        如果找不到精确选择器，尝试滚动到「商品详情」区域后查找 file input。
+        """
+        detail_selectors = [
+            'div[class*="detail"] input[type="file"]',
+            'div[class*="description"] input[type="file"]',
+            'div[class*="richtext"] input[type="file"]',
+            '.detail-editor input[type="file"]',
+        ]
+        uploaded = False
+        for sel in detail_selectors:
+            loc = page.locator(sel).first
+            if await loc.count() > 0:
+                await loc.set_input_files(paths)
+                uploaded = True
+                await asyncio.sleep(3)
+                break
+
+        if not uploaded:
+            all_uploads = page.locator('input[type="file"]')
+            count = await all_uploads.count()
+            if count >= 2:
+                await all_uploads.nth(count - 1).set_input_files(paths)
+                await asyncio.sleep(3)
+            elif count == 1:
+                logger.warning("[DOUYIN-SHOP] only 1 file input found, detail upload may conflict with main images")
+                await all_uploads.first.set_input_files(paths)
+                await asyncio.sleep(3)
+            else:
+                logger.warning("[DOUYIN-SHOP] no file input found for detail images")

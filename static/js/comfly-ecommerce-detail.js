@@ -1361,6 +1361,10 @@
       else if (status === 'running') summaryEl.textContent = '任务生成中，右侧仅保留轻量进度，主区域优先展示最终图片结果。';
       else summaryEl.textContent = '按真实导出目录浏览结果，右侧只保留轻量状态和任务摘要。';
     }
+    var publishBtn = byId('ecomPublishToShopBtn');
+    if (publishBtn) {
+      publishBtn.style.display = (status === 'completed' && state.currentJobId) ? '' : 'none';
+    }
   }
 
   function _renderStatus(resp) {
@@ -1512,6 +1516,46 @@
     _setMsg('', false);
   }
 
+  function _publishToShop() {
+    var base = _localBase();
+    if (!base || !state.currentJobId) {
+      _setMsg('无有效任务或未连接后端。', true);
+      return;
+    }
+    var btn = byId('ecomPublishToShopBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '正在打开抖店…'; }
+    var record = _findRecentJob(state.currentJobId);
+    var payload = {
+      job_id: state.currentJobId,
+      platform: 'douyin_shop',
+      title: record && record.productName ? record.productName : undefined
+    };
+    fetch(base + '/api/ecommerce-publish/from-job', {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+      body: JSON.stringify(payload)
+    })
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+      .then(function(res) {
+        if (btn) { btn.disabled = false; btn.textContent = '发布到抖店'; }
+        if (res.ok && res.data && res.data.ok) {
+          var parts = ['已打开抖店商品发布页面'];
+          if (res.data.auto_filled && res.data.auto_filled.length) {
+            parts.push('自动填充: ' + res.data.auto_filled.join(', '));
+          }
+          _setMsg(parts.join('，') + '。请在浏览器中检查并手动发布。', false);
+        } else if (res.data && res.data.need_login) {
+          _setMsg(res.data.message || '请先登录抖店', true);
+        } else {
+          _setMsg(res.data.detail || res.data.message || '发布失败', true);
+        }
+      })
+      .catch(function(err) {
+        if (btn) { btn.disabled = false; btn.textContent = '发布到抖店'; }
+        _setMsg('发布请求失败: ' + (err.message || err), true);
+      });
+  }
+
   function _bindActions() {
     var backBtn = byId('ecomStudioBackBtn');
     if (backBtn) backBtn.addEventListener('click', function() {
@@ -1525,6 +1569,8 @@
     if (refreshBtn) refreshBtn.addEventListener('click', function() { _refreshJobStatus(true); });
     var drawerBtn = byId('ecomToggleTaskDrawerBtn');
     if (drawerBtn) drawerBtn.addEventListener('click', function() { _setTaskDrawerOpen(); });
+    var publishBtn = byId('ecomPublishToShopBtn');
+    if (publishBtn) publishBtn.addEventListener('click', _publishToShop);
     var mainAssetInput = byId('ecomMainAssetIdInput');
     if (mainAssetInput) {
       mainAssetInput.addEventListener('change', function() {
