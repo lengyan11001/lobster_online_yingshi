@@ -67,7 +67,16 @@
   }
 
   function _authHeaderOnly() {
-    return { Authorization: 'Bearer ' + (typeof token !== 'undefined' ? (token || '') : '') };
+    var t = (typeof token !== 'undefined' && token) ? token : (_safeLocalStorageGet('token') || '');
+    var h = { Authorization: 'Bearer ' + (t || '') };
+    try {
+      if (typeof getOrCreateInstallationId === 'function') {
+        h['X-Installation-Id'] = getOrCreateInstallationId();
+      }
+    } catch (err) {
+      // Keep uploads usable even if localStorage is unavailable.
+    }
+    return h;
   }
 
   function _setMsg(text, isErr) {
@@ -100,8 +109,21 @@
 
   function _resolveAssetPreview(asset) {
     if (!asset) return '';
-    var src = (asset.preview_url || asset.open_url || asset.source_url || '').trim();
+    var src = (asset.local_preview_url || asset.preview_url || asset.open_url || asset.source_url || '').trim();
     return src;
+  }
+
+  function _firstImageUrl() {
+    var keys = ['local_preview_url', 'preview_url', 'open_url', 'file_url', 'source_url', 'generated_image_url'];
+    for (var i = 0; i < arguments.length; i += 1) {
+      var item = arguments[i];
+      if (!item || typeof item !== 'object') continue;
+      for (var k = 0; k < keys.length; k += 1) {
+        var value = String(item[keys[k]] || '').trim();
+        if (value) return value;
+      }
+    }
+    return '';
   }
 
   function _pickResponseMessage(resp, fallback) {
@@ -365,6 +387,18 @@
   function _fileToAssetCard(fileRow) {
     var preview = _resolveAssetPreview(fileRow);
     var filename = (fileRow.filename || fileRow.name || '').trim() || '未命名素材';
+    var isReady = !!(fileRow.asset_id || fileRow.local_path);
+    var status = String(fileRow.upload_status || (isReady ? 'ready' : '') || '').trim();
+    var statusText = status === 'uploading'
+      ? '上传中'
+      : status === 'failed'
+        ? '上传失败'
+        : isReady
+          ? (fileRow.asset_id ? '已上传' : '本地已就绪')
+          : '本地预览';
+    var statusClass = status === 'failed' ? ' failed' : (status === 'uploading' ? '' : ' ready');
+    var assetId = String(fileRow.asset_id || '').trim();
+    var errorMessage = String(fileRow.error_message || '').trim();
     return (
       '<div class="ecom-upload-item">' +
         '<button type="button" class="ecom-upload-remove" data-remove-kind="' + escapeAttr(fileRow.kind || '') + '" data-remove-id="' + escapeAttr(fileRow.uid || '') + '">×</button>' +
@@ -372,8 +406,44 @@
           (preview ? '<img src="' + escapeAttr(preview) + '" alt="">' : '<div class="ecom-empty" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:0.4rem;">无预览</div>') +
         '</div>' +
         '<div class="ecom-upload-name">' + escapeHtml(filename) + '</div>' +
+        '<div class="ecom-upload-status' + statusClass + '">' + escapeHtml(statusText) + '</div>' +
+        (errorMessage ? '<div class="ecom-upload-error">' + escapeHtml(errorMessage) + '</div>' : '') +
+        (assetId ? '<div class="ecom-upload-asset-id">' + escapeHtml(assetId) + '</div>' : '') +
       '</div>'
     );
+  }
+
+  function _createLocalPreviewUrl(file) {
+    if (!file || !/^image\//i.test(file.type || '') || !window.URL || !URL.createObjectURL) return '';
+    try {
+      return URL.createObjectURL(file);
+    } catch (err) {
+      return '';
+    }
+  }
+
+  function _revokeLocalPreviewUrl(row) {
+    var url = row && row.local_preview_url ? String(row.local_preview_url) : '';
+    if (!url || !/^blob:/i.test(url) || !window.URL || !URL.revokeObjectURL) return;
+    try {
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      // Best-effort cleanup only.
+    }
+  }
+
+  function _replaceUploadRow(kind, uid, patch) {
+    function mergeRow(row) {
+      return Object.assign({}, row || {}, patch || {});
+    }
+    if (kind === 'main') {
+      if (state.mainAsset && state.mainAsset.uid === uid) state.mainAsset = mergeRow(state.mainAsset);
+      return;
+    }
+    var listName = kind === 'style_ref' ? 'styleRefs' : 'productRefs';
+    state[listName] = state[listName].map(function(item) {
+      return item && item.uid === uid ? mergeRow(item) : item;
+    });
   }
 
   function _renderUploadList(containerId, items) {
@@ -389,17 +459,20 @@
         var kind = btn.getAttribute('data-remove-kind') || '';
         var uid = btn.getAttribute('data-remove-id') || '';
         if (kind === 'main') {
+          _revokeLocalPreviewUrl(state.mainAsset);
           state.mainAsset = null;
           byId('ecomMainAssetIdInput').value = '';
           _renderMainAsset();
           return;
         }
         if (kind === 'product_ref') {
+          state.productRefs.forEach(function(item) { if (item.uid === uid) _revokeLocalPreviewUrl(item); });
           state.productRefs = state.productRefs.filter(function(item) { return item.uid !== uid; });
           _renderReferenceAssets();
           return;
         }
         if (kind === 'style_ref') {
+          state.styleRefs.forEach(function(item) { if (item.uid === uid) _revokeLocalPreviewUrl(item); });
           state.styleRefs = state.styleRefs.filter(function(item) { return item.uid !== uid; });
           _renderReferenceAssets();
         }
@@ -428,7 +501,7 @@
     return prefix + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
   }
 
-  function _uploadFile(file, kind, done) {
+  function _uploadFile(file, kind, pendingRow, done) {
     var base = _localBase();
     if (!base) {
       _setMsg('当前未检测到本机 LOCAL_API_BASE，无法上传图片。', true);
@@ -437,25 +510,28 @@
     }
     var fd = new FormData();
     fd.append('file', file);
-    fetch(base + '/api/assets/upload', {
+    fetch(base + '/api/comfly-ecommerce-detail/local-upload', {
       method: 'POST',
-      headers: _authHeaderOnly(),
       body: fd
     })
       .then(function(r) {
-        return r.json().then(function(d) { return { ok: r.ok, data: d || {} }; });
+        return r.json().then(function(d) { return { ok: r.ok, status: r.status, data: d || {} }; });
       })
       .then(function(res) {
-        if (!res.ok || !res.data || !res.data.asset_id) {
-          throw new Error((res.data && (res.data.detail || res.data.message)) || '上传失败');
+        if (!res.ok || !res.data || !res.data.local_path) {
+          var detail = (res.data && (res.data.detail || res.data.message)) || '';
+          throw new Error(detail || '本地图片暂存失败');
         }
         var row = {
-          uid: _makeUid(kind),
+          uid: pendingRow && pendingRow.uid ? pendingRow.uid : _makeUid(kind),
           kind: kind,
-          asset_id: res.data.asset_id,
+          asset_id: res.data.asset_id || '',
+          local_path: res.data.local_path,
           filename: res.data.filename || file.name || '',
           source_url: res.data.source_url || '',
-          preview_url: res.data.source_url || ''
+          local_preview_url: pendingRow && pendingRow.local_preview_url ? pendingRow.local_preview_url : '',
+          preview_url: _firstImageUrl(res.data, pendingRow),
+          upload_status: 'ready'
         };
         if (done) done(null, row);
       })
@@ -474,11 +550,39 @@
       var files = input.files;
       if (!files || !files.length) return;
       Array.prototype.forEach.call(files, function(file) {
-        _uploadFile(file, kind, function(err, row) {
-          if (err || !row) return;
+        var pendingRow = {
+          uid: _makeUid(kind),
+          kind: kind,
+          filename: file.name || '本地图片',
+          name: file.name || '本地图片',
+          local_preview_url: _createLocalPreviewUrl(file),
+          preview_url: '',
+          upload_status: 'uploading'
+        };
+        pendingRow.preview_url = pendingRow.local_preview_url;
+        if (appendMode) {
+          if (kind === 'product_ref') state.productRefs.push(pendingRow);
+          if (kind === 'style_ref') state.styleRefs.push(pendingRow);
+          _renderReferenceAssets();
+        } else {
+          _revokeLocalPreviewUrl(state.mainAsset);
+          state.mainAsset = pendingRow;
+          byId('ecomMainAssetIdInput').value = '';
+          _renderMainAsset();
+        }
+        _setMsg('已选择图片，正在保存到本地临时目录...', false);
+        _uploadFile(file, kind, pendingRow, function(err, row) {
+          if (err || !row) {
+            _replaceUploadRow(kind, pendingRow.uid, {
+              upload_status: 'failed',
+              error_message: err && err.message ? err.message : '上传失败'
+            });
+            if (kind === 'main') _renderMainAsset();
+            else _renderReferenceAssets();
+            return;
+          }
           if (appendMode) {
-            if (kind === 'product_ref') state.productRefs.push(row);
-            if (kind === 'style_ref') state.styleRefs.push(row);
+            _replaceUploadRow(kind, pendingRow.uid, row);
             _renderReferenceAssets();
           } else {
             state.mainAsset = row;
@@ -486,7 +590,7 @@
             _renderMainAsset();
           }
           _renderRequestedOutputs();
-          _setMsg('素材上传成功，可继续填写参数后开始生成。', false);
+          _setMsg('本地图片已就绪，可继续填写参数后开始生成。', false);
         });
       });
       input.value = '';
@@ -514,7 +618,7 @@
           asset_id: res.data.asset_id,
           filename: res.data.filename || res.data.asset_id,
           source_url: res.data.source_url || '',
-          preview_url: res.data.source_url || ''
+          preview_url: _firstImageUrl(res.data)
         };
         if (done) done(null, row);
       })
@@ -581,7 +685,14 @@
 
   function _buildPayload() {
     var mainAssetId = (byId('ecomMainAssetIdInput').value || '').trim() || (state.mainAsset && state.mainAsset.asset_id) || '';
-    if (!mainAssetId) return { error: '请先上传主商品图，或填写可用的 asset_id。' };
+    var mainLocalPath = (state.mainAsset && state.mainAsset.local_path) || '';
+    if (state.mainAsset && state.mainAsset.upload_status === 'uploading' && !mainAssetId && !mainLocalPath) {
+      return { error: '主商品图还在保存，请等状态变成“本地已就绪”后再开始生成。' };
+    }
+    if (state.mainAsset && state.mainAsset.upload_status === 'failed' && !mainAssetId && !mainLocalPath) {
+      return { error: '主商品图保存失败，请重新选择本地图片，或直接填写可用的 asset_id。' };
+    }
+    if (!mainAssetId && !mainLocalPath) return { error: '请先选择主商品图，或填写可用的 asset_id。' };
     var payload = {
       product_name_hint: (byId('ecomProductNameInput').value || '').trim(),
       product_direction_hint: (byId('ecomProductDirectionInput').value || '').trim(),
@@ -593,26 +704,32 @@
       detail_template_id: (byId('ecomDetailTemplateSelect').value || '').trim() || 'detail_template_02',
       showcase_template_id: (byId('ecomShowcaseTemplateSelect').value || '').trim() || 'showcase_template_02',
       page_count: Number(byId('ecomPageCountInput').value || 12) || 12,
-      auto_save: true,
+      auto_save: false,
       analysis_model: ANALYSIS_MODEL,
       image_model: IMAGE_MODEL,
       output_targets: _outputTargetsFromForm(),
       scene_preferences: _scenePreferencesFromForm(),
       style_reference_asset_ids: state.styleRefs.map(function(item) { return item.asset_id; }).filter(Boolean),
+      style_reference_local_paths: state.styleRefs.map(function(item) { return item.local_path; }).filter(Boolean),
       compliance_notes: _parseLines('ecomComplianceNotesInput'),
       platform: 'ecommerce',
       country: 'China',
       language: 'zh-CN'
     };
-    var productImages = [{ role: 'front', asset_id: mainAssetId }];
-    state.productRefs.forEach(function(item, idx) {
-      productImages.push({
-        role: idx === 0 ? 'side' : 'detail',
-        asset_id: item.asset_id
-      });
+    var frontImage = { role: 'front' };
+    if (mainLocalPath) frontImage.local_path = mainLocalPath;
+    else frontImage.asset_id = mainAssetId;
+    var productImages = [frontImage];
+    state.productRefs.filter(function(item) { return item && (item.local_path || item.asset_id); }).forEach(function(item, idx) {
+      var refImage = { role: idx === 0 ? 'side' : 'detail' };
+      if (item.local_path) refImage.local_path = item.local_path;
+      else refImage.asset_id = item.asset_id;
+      productImages.push(refImage);
     });
     if (productImages.length > 1) {
       payload.product_images = productImages;
+    } else if (mainLocalPath) {
+      payload.local_path = mainLocalPath;
     } else {
       payload.asset_id = mainAssetId;
     }
@@ -635,7 +752,7 @@
       var rows = Array.isArray(savedSuite[key]) ? savedSuite[key] : [];
       out[key] = rows.map(function(item, index) {
         var asset = item && item.asset ? item.asset : {};
-        var previewUrl = (asset.preview_url || asset.open_url || asset.source_url || '').trim();
+        var previewUrl = _firstImageUrl(asset, item);
         return {
           title: (item && item.filename) || ('结果 ' + (index + 1)),
           meta: [asset.asset_id ? ('asset_id: ' + asset.asset_id) : '', item && item.relative_path ? item.relative_path : ''].filter(Boolean).join(' · '),
@@ -963,7 +1080,7 @@
     var base = _localBase();
     if (!base || !state.currentJobId) return;
     fetch(base + '/api/comfly-ecommerce-detail/pipeline/jobs/' + encodeURIComponent(state.currentJobId), {
-      headers: authHeaders()
+      headers: {}
     })
       .then(function(r) {
         return r.json().then(function(d) { return { ok: r.ok, data: d || {} }; });
@@ -1138,7 +1255,7 @@
       var payload = bundle[key] || {};
       var items = Array.isArray(payload.items) ? payload.items : [];
       out[key] = items.map(function(item, index) {
-        var previewUrl = (item.generated_image_url || item.preview_url || item.open_url || item.source_url || '').trim();
+        var previewUrl = _firstImageUrl(item);
         var sizeLabel = item.width && item.height ? (String(item.width) + 'x' + String(item.height)) : '';
         return {
           title: item.filename || ('结果 ' + (index + 1)),
@@ -1211,7 +1328,7 @@
     var base = _localBase();
     if (!base || !state.currentJobId) return;
     fetch(base + '/api/comfly-ecommerce-detail/pipeline/jobs/' + encodeURIComponent(state.currentJobId), {
-      headers: authHeaders()
+      headers: {}
     })
       .then(function(r) {
         return r.json().then(function(d) { return { ok: r.ok, data: d || {} }; });
@@ -1428,7 +1545,7 @@
     var base = _localBase();
     if (!base || !state.currentJobId) return;
     fetch(base + '/api/comfly-ecommerce-detail/pipeline/jobs/' + encodeURIComponent(state.currentJobId), {
-      headers: authHeaders()
+      headers: {}
     })
       .then(function(r) {
         return r.json().then(function(d) { return { ok: r.ok, data: d || {} }; });

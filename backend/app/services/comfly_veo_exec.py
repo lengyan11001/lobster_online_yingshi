@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 _DEFAULT_VIDEO_MODEL = "veo3.1"
 _DEFAULT_ANALYSIS_MODEL = "gemini-2.5-pro"
 _DEFAULT_ASPECT = "9:16"
+LOCAL_COMFLY_CONFIG_USER_ID = 0
+
+
+def _default_comfly_api_base() -> str:
+    return ((settings.comfly_api_base or "").strip().rstrip("/")) or "https://ai.comfly.chat/v1"
 
 
 def _comfly_upload_failure_detail(aid: str, user_id: int, db: Session) -> str:
@@ -74,19 +79,10 @@ def _reject_if_sutui_style_model(field: str, value: str) -> None:
 
 
 def _resolve_comfly_credentials(user_id: int, db: Session) -> tuple[str, str]:
-    """仅使用当前用户在技能商店「爆款TVC」中保存的 api_base / api_key，不回退 .env。"""
+    """当前仅要求用户保存 api_key；api_base 统一走服务端内置配置。"""
     row = db.query(UserComflyConfig).filter(UserComflyConfig.user_id == user_id).first()
     ukey = (row.api_key or "").strip() if row else ""
-    ubase = (row.api_base or "").strip().rstrip("/") if row else ""
-    if not ubase:
-        raise HTTPException(
-            status_code=503,
-            detail=(
-                "未配置 Comfly API 地址：请在技能商店「爆款TVC」中填写 API 根地址"
-                "（常用 https://ai.comfly.chat/v1，与官方 OpenAI 兼容 chat 路径拼接；"
-                "Veo 提交走后端 v2 /v2/videos/generations，以 Comfly 文档为准）。"
-            ),
-        )
+    ubase = _default_comfly_api_base()
     if not ukey:
         raise HTTPException(
             status_code=503,

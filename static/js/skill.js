@@ -226,9 +226,9 @@ function _renderComflyCard() {
   var sub = ok
     ? ''
     : '<div style="margin-top:0.55rem;padding:0.55rem 0.7rem;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:8px;font-size:0.78rem;color:var(--text-muted);line-height:1.55;">'
-      + '只需在 <strong>Comfly</strong> 控制台复制 <strong>API Key</strong>，并填写常用根地址 <code>https://ai.comfly.chat/v1</code>。'
+      + '只需在 <strong>Comfly</strong> 控制台复制 <strong>API Key</strong> 即可，接口地址走系统内置配置，无需用户单独填写。'
       + '用户对话可说「用<strong>爆款TVC</strong>和这个素材做视频」；技能会自动跑分镜、多段成片与入库，无需在卡片里配分镜参数。'
-      + ' 点击下方「配置」填写凭据，不会写入聊天记录。</div>';
+      + ' 点击下方「配置」仅保存到本机，不会写入聊天记录，也不会在保存时请求 Comfly 校验凭据。</div>';
   return '<div class="skill-store-card comfly-veo-card" style="border-color:rgba(245,158,11,0.38);background:linear-gradient(135deg,rgba(245,158,11,0.07),transparent);">' +
     '<div class="card-label">生成 · 内置 ' + statusBadge + '</div>' +
     '<div class="card-value">爆款TVC</div>' +
@@ -252,7 +252,7 @@ function _renderEcommerceDetailCard(opts) {
     : '<span class="badge-coming" style="background:rgba(251,146,60,0.15);color:#fb923c;border-color:rgba(251,146,60,0.3);">待配置</span>';
   var sub = ok
     ? '<div style="margin-top:0.45rem;font-size:0.78rem;color:var(--text-muted);">直接进入工作台，按结构化参数控制本次套图生成内容。</div>'
-    : '<div style="margin-top:0.55rem;padding:0.55rem 0.7rem;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:8px;font-size:0.78rem;color:var(--text-muted);line-height:1.55;">先在本机保存 <strong>Comfly API Key</strong> 与 API Base，然后再进入产品套图工作台。这个界面是专门用于批量生成电商上架素材的，不是聊天入口。</div>';
+    : '<div style="margin-top:0.55rem;padding:0.55rem 0.7rem;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:8px;font-size:0.78rem;color:var(--text-muted);line-height:1.55;">先在本机保存 <strong>Comfly API Key</strong>，接口地址走内置配置，然后再进入产品套图工作台。这个界面是专门用于批量生成电商上架素材的，不是聊天入口。</div>';
   return '<div class="skill-store-card ecommerce-detail-card" style="cursor:pointer;border-color:rgba(236,72,153,0.34);background:linear-gradient(135deg,rgba(236,72,153,0.08),rgba(245,158,11,0.05));">' +
     '<div class="card-label">生成 · 内置 ' + statusBadge + '</div>' +
     '<div class="card-value">' + escapeHtml(title) + '</div>' +
@@ -749,17 +749,12 @@ function _bindXSkillConfigBtn() {
 function _openComflyConfigModal() {
   var modal = document.getElementById('comflyModal');
   var keyInput = document.getElementById('comflyApiKeyInput');
-  var baseInput = document.getElementById('comflyApiBaseInput');
   if (!modal) return;
   if (keyInput) {
     keyInput.value = '';
     keyInput.placeholder = _comflyStatus.has_user_key
       ? '已保存 Key（' + (_comflyStatus.masked_user_key || '已脱敏') + '），输入新 Key 可覆盖'
       : '粘贴 Comfly API Key';
-  }
-  if (baseInput) {
-    baseInput.value = _comflyStatus.user_api_base || '';
-    baseInput.placeholder = _comflyStatus.default_api_base_hint || 'https://ai.comfly.chat/v1';
   }
   var msgEl = document.getElementById('comflyModalMsg');
   if (msgEl) {
@@ -977,33 +972,32 @@ function _bindComflyConfigBtn() {
 
   if (saveBtn) saveBtn.addEventListener('click', function() {
     var keyInput = document.getElementById('comflyApiKeyInput');
-    var baseInput = document.getElementById('comflyApiBaseInput');
     var msgEl = document.getElementById('comflyModalMsg');
     var k = keyInput ? keyInput.value.trim() : '';
-    var b = baseInput ? baseInput.value.trim().replace(/\/+$/, '') : '';
     var body = {};
     if (k) body.api_key = k;
     else if (!_comflyStatus.has_user_key) {
       if (msgEl) { msgEl.textContent = '请填写 Comfly API Key'; msgEl.className = 'msg err'; msgEl.style.display = ''; }
       return;
     }
-    if (!b && !_comflyStatus.user_api_base) {
-      if (msgEl) { msgEl.textContent = '请填写 API 根地址（常用 https://ai.comfly.chat/v1）'; msgEl.className = 'msg err'; msgEl.style.display = ''; }
-      return;
-    }
-    body.api_base = b;
     saveBtn.disabled = true; saveBtn.textContent = '保存中…';
     fetch((LOCAL_API_BASE || '') + '/api/comfly/config', {
       method: 'POST', headers: authHeaders(),
       body: JSON.stringify(body)
     })
-      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, status: r.status, data: d }; }); })
       .then(function(x) {
         if (x.ok) {
-          if (msgEl) { msgEl.textContent = '已保存'; msgEl.className = 'msg'; msgEl.style.display = ''; }
+          if (msgEl) { msgEl.textContent = '已保存。这里只做本机保存，不会在保存时校验 Comfly 凭据。'; msgEl.className = 'msg'; msgEl.style.display = ''; }
           setTimeout(function() { closeModal(); loadSkillStore(); }, 500);
         } else {
           var det = x.data && (x.data.detail || x.data.message);
+          if (x.status === 401 && msgEl) {
+            msgEl.textContent = '当前软件登录态已失效，请重新登录后再保存。这不是 Comfly Key 校验失败。';
+            msgEl.className = 'msg err';
+            msgEl.style.display = '';
+            return;
+          }
           if (msgEl) { msgEl.textContent = det || '保存失败'; msgEl.className = 'msg err'; msgEl.style.display = ''; }
         }
       })

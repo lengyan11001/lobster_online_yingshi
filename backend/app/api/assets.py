@@ -1268,6 +1268,13 @@ async def upload_asset(
                     headers = {}
                     if bearer_token:
                         headers["Authorization"] = f"Bearer {bearer_token}"
+                    installation_id = (
+                        request.headers.get("X-Installation-Id")
+                        or request.headers.get("x-installation-id")
+                        or ""
+                    ).strip()
+                    if installation_id:
+                        headers["X-Installation-Id"] = installation_id
                     upload_url = f"{server_base.rstrip('/')}/api/assets/upload-temp"
                     logger.info("[上传流程-步骤3] POST %s asset_id=%s", upload_url, aid)
                     resp = await client.post(upload_url, files=files, headers=headers)
