@@ -11,7 +11,7 @@ import httpx
 
 from ..api.auth import create_access_token
 from ..core.config import settings
-from .internal_chat_client import chat_headers_for_user
+from .internal_chat_client import chat_headers_for_forwarded_browser, chat_headers_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,8 @@ async def execute_review_slot_generation(
     attachment_asset_ids: Optional[List[str]] = None,
     schedule_kind: Optional[str] = None,
     video_source_asset_id: Optional[str] = None,
+    user_bearer_token: Optional[str] = None,
+    x_installation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     单次：把 user_message（用户编辑后的完整提示词）发给 POST /chat，走 MCP 生成素材，不发布。
@@ -84,12 +86,20 @@ async def execute_review_slot_generation(
         raise ValueError("提示词 prompt 不能为空")
 
     body = msg + _footer_no_publish()
-    token = create_access_token(
-        data={"sub": str(user_id)},
-        expires_delta=timedelta(hours=2),
-    )
     url = f"{_api_base_url()}/chat"
-    headers = chat_headers_for_user(user_id, token)
+    ut = (user_bearer_token or "").strip()
+    if ut:
+        headers = chat_headers_for_forwarded_browser(
+            user_id,
+            bearer_token=ut,
+            x_installation_id=x_installation_id,
+        )
+    else:
+        token = create_access_token(
+            data={"sub": str(user_id)},
+            expires_delta=timedelta(hours=2),
+        )
+        headers = chat_headers_for_user(user_id, token)
     aids = resolved_attachment_ids_for_review_chat(
         attachment_asset_ids,
         schedule_kind=schedule_kind,

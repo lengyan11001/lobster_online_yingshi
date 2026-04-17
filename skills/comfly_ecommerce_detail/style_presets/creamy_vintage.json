@@ -1,0 +1,36 @@
+{
+  "style_id": "creamy_vintage",
+  "display_name": "中古孟菲斯风",
+  "aliases": ["memphis_vintage", "中古孟菲斯风", "奶油中古风"],
+  "visual_style": "mid-century modern and memphis inspired premium ecommerce interior styling, warm walnut foundation, low-saturation playful color blocking, hyperrealistic product photography",
+  "palette": ["胡桃木色", "雾霾蓝", "奶白", "浅粉", "陶土色"],
+  "materials": ["樱桃木", "柚木", "镀铬金属", "不锈钢", "烤漆门板"],
+  "lighting": {
+    "type": "soft_natural_side_light",
+    "temperature": "warm",
+    "description": "暖调侧光与漫射自然光，阴影柔和，带午后阳光的松弛感"
+  },
+  "scene_objects": ["模块化组合柜", "几何造型柜门", "开放式格架", "复古装饰画", "中古灯具", "低饱和撞色软装"],
+  "decorative_objects": ["细金属腿", "圆形透气孔", "几何色块", "复古地毯", "陶土花瓶"],
+  "negative_rules": ["禁止高饱和刺眼配色", "禁止赛博感", "禁止过度镜面反射", "禁止冷白硬光", "禁止廉价卡通感"],
+  "prompt_keywords_en": ["mid-century modern memphis style", "walnut wood furniture", "geometric color block", "retro home decor", "warm natural light", "hyperrealistic photography"],
+  "copy_tone": "卖点表达可以更有记忆点，但不要花哨，要保留高级感和转化感",
+  "scene_direction": "复古但不老气，空间里要有设计感和一点 playful 气质，产品仍是第一主体",
+  "showcase_theme": {
+    "background": "#f1ebe4",
+    "card_white": "#f9f5ef",
+    "text": "#1f1711",
+    "muted": "#6e6259",
+    "accent": "#dc6c34",
+    "chip_bg": "#6d4a37",
+    "chip_text": "#fff8f1",
+    "soft_line": "#e6dbcf"
+  },
+  "sku_theme": {
+    "dark": "#6d4430",
+    "light": "#fff8f1",
+    "accent": "#dc6c34",
+    "text_dark": "#fff7ef",
+    "body_dark": "#4c3425"
+  }
+}

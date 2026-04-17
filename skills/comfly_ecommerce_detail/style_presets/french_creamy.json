@@ -1,0 +1,36 @@
+{
+  "style_id": "french_creamy",
+  "display_name": "法式奶油风",
+  "aliases": ["法式奶油风", "french_creamy"],
+  "visual_style": "french creamy retro premium ecommerce living room styling, plaster molding, curved cabinetry, walnut and light wood accents, warm diffused window light, hyperrealistic photography",
+  "palette": ["米白", "奶白", "奶咖", "胡桃木色", "柔粉", "低饱和暖绿"],
+  "materials": ["圆润实木家具", "弧形柜门", "长虹玻璃", "黄铜五金", "复古地毯", "羊羔毛软包"],
+  "lighting": {
+    "type": "warm_diffused_window_light",
+    "temperature": "warm",
+    "description": "白纱帘柔化的暖黄漫射自然光配合复古灯具补光，整体通透柔和"
+  },
+  "scene_objects": ["法式石膏线", "弧形门洞", "复古落地灯", "长虹玻璃柜", "绿植", "复古花瓶"],
+  "decorative_objects": ["云朵沙发", "藤编元素", "毛绒坐墩", "复古装饰画", "黄铜细节"],
+  "negative_rules": ["禁止冷感极简办公室氛围", "禁止高饱和彩灯", "禁止生硬直射光", "禁止廉价宫廷感", "禁止拥挤杂乱"],
+  "prompt_keywords_en": ["cream retro living room", "French plaster molding", "arched frosted glass cabinet", "vintage floor lamp", "warm soft light", "hyperrealistic photography"],
+  "copy_tone": "文案语气更柔和精致，强调质感、氛围感和高级居家搭配感",
+  "scene_direction": "暖调、通透、柔和，带一点法式复古的浪漫感，但仍然服务商品展示",
+  "showcase_theme": {
+    "background": "#f5f0eb",
+    "card_white": "#fcf8f4",
+    "text": "#2b211b",
+    "muted": "#74655b",
+    "accent": "#c57b56",
+    "chip_bg": "#8f6a57",
+    "chip_text": "#fff8f2",
+    "soft_line": "#eadfd4"
+  },
+  "sku_theme": {
+    "dark": "#8b6450",
+    "light": "#fff8f2",
+    "accent": "#d29a74",
+    "text_dark": "#fff8f1",
+    "body_dark": "#5a4337"
+  }
+}

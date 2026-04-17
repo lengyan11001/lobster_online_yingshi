@@ -17,6 +17,10 @@
   var modalCancel = document.getElementById('wecomConfigModalCancel');
   var modalSave = document.getElementById('wecomConfigModalSave');
 
+  var secretInput = document.getElementById('wecomConfigSecret');
+  var contactsSecretInput = document.getElementById('wecomConfigContactsSecret');
+  var agentIdInput = document.getElementById('wecomConfigAgentId');
+
   var _editingId = null;
   var enterpriseSelect = document.getElementById('wecomConfigEnterpriseId');
   var productSelect = document.getElementById('wecomConfigProductId');
@@ -67,15 +71,21 @@
         var html = configs.map(function(c) {
           var name = (c.name || '未命名').trim() || '未命名';
           var corp = c.corp_id || '-';
-          var url = c.callback_url || ('/api/wecom/callback/' + (c.callback_path || ''));
+          var displayUrl = c.callback_url || ('/api/wecom/callback/' + (c.callback_path || ''));
           var hasKnowledge = c.has_product_knowledge ? '有' : '无';
+          var hasSecret = c.has_secret ? '已配置' : '未配置';
+          var secretColor = c.has_secret ? 'color:#4ade80;' : 'color:#f87171;';
           return '<div class="skill-store-card wecom-config-card" data-config-id="' + escapeAttr(String(c.id)) + '">' +
             '<div class="card-label">应用</div>' +
             '<div class="card-value">' + escapeHtml(name) + '</div>' +
-            '<div class="card-desc">CorpID: ' + escapeHtml(corp) + ' · 产品知识: ' + hasKnowledge + '</div>' +
-            '<pre class="config-block-item" style="font-size:0.75rem;margin:0.5rem 0;padding:0.4rem;background:rgba(0,0,0,0.2);border-radius:4px;overflow-x:auto;">' + escapeHtml(url) + '</pre>' +
+            '<div class="card-desc">CorpID: ' + escapeHtml(corp) + ' · Secret: <span style="' + secretColor + '">' + hasSecret + '</span> · 知识库: ' + hasKnowledge + '</div>' +
+            '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem;">回调 URL（填入企微后台）</div>' +
+            '<div style="display:flex;align-items:center;gap:0.5rem;margin:0.2rem 0 0.5rem 0;">' +
+              '<pre class="config-block-item" style="font-size:0.75rem;margin:0;padding:0.4rem;background:rgba(0,0,0,0.2);border-radius:4px;overflow-x:auto;flex:1;">' + escapeHtml(displayUrl) + '</pre>' +
+              '<button type="button" class="btn btn-primary btn-sm wecom-copy-url" data-url="' + escapeAttr(displayUrl) + '" style="white-space:nowrap;">复制</button>' +
+            '</div>' +
             '<div class="card-actions">' +
-              '<button type="button" class="btn btn-ghost btn-sm wecom-copy-url" data-url="' + escapeAttr(url) + '">复制 URL</button>' +
+              '<button type="button" class="btn btn-primary btn-sm wecom-detail" data-id="' + escapeAttr(String(c.id)) + '">详情</button>' +
               '<button type="button" class="btn btn-ghost btn-sm wecom-edit" data-id="' + escapeAttr(String(c.id)) + '">编辑</button>' +
               '<button type="button" class="btn btn-ghost btn-sm wecom-delete" data-id="' + escapeAttr(String(c.id)) + '">删除</button>' +
             '</div></div>';
@@ -89,7 +99,7 @@
           });
         });
         listEl.querySelectorAll('.wecom-copy-url').forEach(function(btn) {
-          btn.addEventListener('click', function(e) { e.stopPropagation(); copyUrl(btn.getAttribute('data-url')); });
+          btn.addEventListener('click', function(e) { e.stopPropagation(); copyUrl(btn.getAttribute('data-url'), btn); });
         });
         listEl.querySelectorAll('.wecom-edit').forEach(function(btn) {
           btn.addEventListener('click', function(e) { e.stopPropagation(); openEdit(parseInt(btn.getAttribute('data-id'), 10)); });
@@ -101,25 +111,40 @@
             deleteConfig(parseInt(btn.getAttribute('data-id'), 10));
           });
         });
+        listEl.querySelectorAll('.wecom-detail').forEach(function(btn) {
+          btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var configId = parseInt(btn.getAttribute('data-id'), 10);
+            if (typeof showWecomDetailView === 'function') showWecomDetailView(configId);
+          });
+        });
       })
       .catch(function() {
         if (listEl) listEl.innerHTML = '<p class="msg err">加载失败</p>';
       });
   }
 
-  function copyUrl(url) {
+  function copyUrl(url, btn) {
     if (!url) return;
     if (url.indexOf('/') === 0) url = window.location.origin + url;
+    function onCopied() {
+      if (btn) {
+        var orig = btn.textContent;
+        btn.textContent = '已复制 ✓';
+        btn.style.color = '#4ade80';
+        setTimeout(function() { btn.textContent = orig; btn.style.color = ''; }, 1500);
+      }
+    }
     if (typeof navigator.clipboard !== 'undefined' && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(function() { alert('已复制到剪贴板'); }).catch(function() { fallbackCopy(url); });
-    } else { fallbackCopy(url); }
+      navigator.clipboard.writeText(url).then(onCopied).catch(function() { fallbackCopy(url); onCopied(); });
+    } else { fallbackCopy(url); onCopied(); }
   }
   function fallbackCopy(str) {
     var ta = document.createElement('textarea');
     ta.value = str;
     document.body.appendChild(ta);
     ta.select();
-    try { document.execCommand('copy'); alert('已复制到剪贴板'); } catch (e) {}
+    try { document.execCommand('copy'); } catch (e) {}
     document.body.removeChild(ta);
   }
 
@@ -146,6 +171,9 @@
     if (tokenInput) tokenInput.value = '';
     if (aesKeyInput) aesKeyInput.value = '';
     if (corpIdInput) corpIdInput.value = '';
+    if (secretInput) secretInput.value = '';
+    if (contactsSecretInput) contactsSecretInput.value = '';
+    if (agentIdInput) agentIdInput.value = '';
     if (productInput) productInput.value = '';
     if (enterpriseSelect) enterpriseSelect.value = '';
     if (productSelect) productSelect.value = '';
@@ -165,6 +193,9 @@
           if (tokenInput) { tokenInput.value = ''; tokenInput.placeholder = '不修改请留空'; }
           if (aesKeyInput) { aesKeyInput.value = ''; aesKeyInput.placeholder = '不修改请留空'; }
           if (corpIdInput) corpIdInput.value = c.corp_id || '';
+          if (secretInput) { secretInput.value = c.secret || ''; secretInput.placeholder = c.secret ? '已配置，输入新值可覆盖' : '企微后台 → 应用管理 → 自建应用 → Secret'; }
+          if (contactsSecretInput) { contactsSecretInput.value = c.contacts_secret || ''; contactsSecretInput.placeholder = c.contacts_secret ? '已配置，输入新值可覆盖' : '企微后台 → 管理工具 → 通讯录同步 → Secret'; }
+          if (agentIdInput) agentIdInput.value = c.agent_id || '';
           if (productInput) productInput.value = c.product_knowledge || '';
           if (enterpriseSelect && c.enterprise_id) enterpriseSelect.value = String(c.enterprise_id);
           if (productSelect && c.product_id) productSelect.value = String(c.product_id);
@@ -186,13 +217,16 @@
     var token = (tokenInput && tokenInput.value) ? tokenInput.value.trim() : '';
     var aesKey = (aesKeyInput && aesKeyInput.value) ? aesKeyInput.value.trim() : '';
     var corpId = (corpIdInput && corpIdInput.value) ? corpIdInput.value.trim() : '';
+    var secret = (secretInput && secretInput.value) ? secretInput.value.trim() : '';
+    var contactsSecret = (contactsSecretInput && contactsSecretInput.value) ? contactsSecretInput.value.trim() : '';
+    var agentId = (agentIdInput && agentIdInput.value) ? parseInt(agentIdInput.value, 10) : null;
     var product = (productInput && productInput.value) ? productInput.value.trim() : '';
     if (!token && !_editingId) { showMsg(modalMsg, '请填写 Token', true); return; }
     if (!aesKey && !_editingId) { showMsg(modalMsg, '请填写 EncodingAESKey', true); return; }
     showMsg(modalMsg, '保存中…', false);
     var entId = (enterpriseSelect && enterpriseSelect.value) ? parseInt(enterpriseSelect.value, 10) : null;
     var prodId = (productSelect && productSelect.value) ? parseInt(productSelect.value, 10) : null;
-    var body = { name: name || '默认应用', token: token || undefined, encoding_aes_key: aesKey || undefined, corp_id: corpId || undefined, product_knowledge: product || undefined, enterprise_id: entId || undefined, product_id: prodId || undefined };
+    var body = { name: name || '默认应用', token: token || undefined, encoding_aes_key: aesKey || undefined, corp_id: corpId || undefined, secret: secret || undefined, contacts_secret: contactsSecret || undefined, agent_id: agentId || undefined, product_knowledge: product || undefined, enterprise_id: entId || undefined, product_id: prodId || undefined };
     var method = _editingId ? 'PUT' : 'POST';
     var path = _editingId ? '/api/wecom/configs/' + _editingId : '/api/wecom/configs';
     if (_editingId) {
@@ -201,6 +235,9 @@
       if (token) up.token = token;
       if (aesKey) up.encoding_aes_key = aesKey;
       if (corpId !== undefined) up.corp_id = corpId;
+      if (secret) up.secret = secret;
+      if (contactsSecret) up.contacts_secret = contactsSecret;
+      if (agentId) up.agent_id = agentId;
       if (product !== undefined) up.product_knowledge = product;
       if (entId !== undefined) up.enterprise_id = entId;
       if (prodId !== undefined) up.product_id = prodId;
@@ -233,12 +270,6 @@
       .catch(function() { alert('请求失败'); });
   }
 
-  var detailBtn = document.getElementById('wecomConfigDetailBtn');
-  if (detailBtn) {
-    detailBtn.addEventListener('click', function() {
-      if (typeof showWecomDetailView === 'function') showWecomDetailView();
-    });
-  }
   if (backBtn) {
     backBtn.addEventListener('click', function() {
       location.hash = '';
@@ -261,55 +292,7 @@
     });
   }
 
-  function loadWecomCloudConfigPage() {
-    var urlInput = document.getElementById('wecomCloudUrlInputPage');
-    var secretInput = document.getElementById('wecomForwardSecretInputPage');
-    if (!urlInput) return;
-    api('GET', '/api/wecom/cloud-config')
-      .then(function(r) { return r.ok ? r.json() : null; })
-      .then(function(d) {
-        if (!d) return;
-        if (urlInput) urlInput.value = d.wecom_cloud_url || '';
-        if (secretInput) {
-          secretInput.value = '';
-          secretInput.placeholder = d.has_wecom_forward_secret ? '已配置 (' + (d.wecom_forward_secret || '***') + ')，输入新值可覆盖' : '请勿提交到 git';
-        }
-      })
-      .catch(function() {});
-  }
-
-  function saveWecomCloudConfigPage() {
-    var urlInput = document.getElementById('wecomCloudUrlInputPage');
-    var secretInput = document.getElementById('wecomForwardSecretInputPage');
-    var btn = document.getElementById('saveWecomCloudConfigBtnPage');
-    var msgEl = document.getElementById('wecomCloudConfigMsgPage');
-    if (!urlInput) return;
-    var url = (urlInput.value || '').trim().replace(/\/+$/, '');
-    var secret = secretInput ? (secretInput.value || '').trim() : '';
-    if (!url) {
-      if (msgEl) { msgEl.textContent = '请填写云端地址'; msgEl.className = 'msg err'; msgEl.style.display = 'inline'; }
-      return;
-    }
-    if (btn) btn.disabled = true;
-    var body = { wecom_cloud_url: url };
-    if (secret) body.wecom_forward_secret = secret;
-    api('POST', '/api/wecom/cloud-config', body)
-      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
-      .then(function(x) {
-        if (x.ok) {
-          if (msgEl) { msgEl.textContent = '已保存'; msgEl.className = 'msg'; msgEl.style.display = 'inline'; }
-          if (secretInput) secretInput.value = '';
-          loadWecomCloudConfigPage();
-        } else {
-          if (msgEl) { msgEl.textContent = (x.data && x.data.detail) || '保存失败'; msgEl.className = 'msg err'; msgEl.style.display = 'inline'; }
-        }
-      })
-      .catch(function() { if (msgEl) { msgEl.textContent = '网络错误'; msgEl.className = 'msg err'; msgEl.style.display = 'inline'; } })
-      .finally(function() { if (btn) btn.disabled = false; });
-  }
-
-  var saveWecomCloudBtnPage = document.getElementById('saveWecomCloudConfigBtnPage');
-  if (saveWecomCloudBtnPage) saveWecomCloudBtnPage.addEventListener('click', saveWecomCloudConfigPage);
+  // 企微云端配置 UI 已移除（云端地址与 WECOM_FORWARD_SECRET 不再需要手动配置）
 
   window.showWecomConfigView = function() {
     location.hash = 'wecom-config';
@@ -320,7 +303,6 @@
     var navEl = document.querySelector('.nav-left-item[data-view="skill-store"]');
     if (navEl) navEl.classList.add('active');
     if (typeof currentView !== 'undefined') currentView = 'wecom-config';
-    loadWecomCloudConfigPage();
     loadWecomConfigList();
   };
 

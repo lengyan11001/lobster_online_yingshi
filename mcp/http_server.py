@@ -69,17 +69,19 @@ _LOCAL_INVOKE_BACKEND: Dict[str, Tuple[str, float]] = {
     "media.edit": ("/api/media-edit/run", 3600.0),
     "comfly.veo": ("/api/comfly-veo/run", 600.0),
     "comfly.veo.daihuo_pipeline": ("/api/comfly-daihuo/pipeline/run", 7200.0),
+    "comfly.ecommerce.detail_pipeline": ("/api/comfly-ecommerce-detail/pipeline/run", 7200.0),
+    "ecommerce.publish": ("/api/ecommerce-publish/open-product-form", 120.0),
 }
 
 # 不在 MCP 内调认证中心 pre/record/refund：media.edit 免费；comfly.* 扣费在各自后端路由内处理。
-_INVOKE_NO_AUTH_CENTER_BILLING = frozenset({"media.edit", "comfly.veo", "comfly.veo.daihuo_pipeline"})
+_INVOKE_NO_AUTH_CENTER_BILLING = frozenset({"media.edit", "comfly.veo", "comfly.veo.daihuo_pipeline", "comfly.ecommerce.detail_pipeline", "ecommerce.publish"})
 
 
 def _normalize_invoke_task_get_result_args(args: Dict[str, Any]) -> Dict[str, Any]:
     """task.get_result：上游只认 payload.task_id；模型常误写 taskid/taskId 或把 task_id 放在 arguments 顶层。"""
     if not isinstance(args, dict):
         return args
-    if (args.get("capability_id") or "").strip() != "task.get_result":
+    if str(args.get("capability_id") or "").strip() != "task.get_result":
         return args
     payload = args.get("payload")
     if not isinstance(payload, dict):
@@ -122,7 +124,7 @@ def _normalize_invoke_comfly_veo_args(args: Dict[str, Any]) -> Dict[str, Any]:
     """comfly.veo：模型常把 action 写在 invoke_capability 顶层，或误套 payload.payload。"""
     if not isinstance(args, dict):
         return args
-    if (args.get("capability_id") or "").strip() != "comfly.veo":
+    if str(args.get("capability_id") or "").strip() != "comfly.veo":
         return args
     raw_pl = args.get("payload")
     pl: Dict[str, Any] = dict(raw_pl) if isinstance(raw_pl, dict) else {}
@@ -131,7 +133,7 @@ def _normalize_invoke_comfly_veo_args(args: Dict[str, Any]) -> Dict[str, Any]:
         base = {k: v for k, v in pl.items() if k != "payload"}
         pl = {**base, **nested}
     if not (pl.get("action") or "").strip():
-        top_act = (args.get("action") or "").strip()
+        top_act = str(args.get("action") or "").strip()
         if top_act:
             pl["action"] = top_act
         for k in (
@@ -157,7 +159,7 @@ def _normalize_invoke_daihuo_pipeline_args(args: Dict[str, Any]) -> Dict[str, An
     """comfly.veo.daihuo_pipeline：模型常把 action/job_id 写在顶层或误套 payload.payload。"""
     if not isinstance(args, dict):
         return args
-    if (args.get("capability_id") or "").strip() != "comfly.veo.daihuo_pipeline":
+    if str(args.get("capability_id") or "").strip() != "comfly.veo.daihuo_pipeline":
         return args
     raw_pl = args.get("payload")
     pl: Dict[str, Any] = dict(raw_pl) if isinstance(raw_pl, dict) else {}
@@ -170,7 +172,7 @@ def _normalize_invoke_daihuo_pipeline_args(args: Dict[str, Any]) -> Dict[str, An
         base = {k: v for k, v in pl.items() if k != "payload"}
         pl = {**base, **nested}
     if not (pl.get("action") or "").strip():
-        top_act = (args.get("action") or "").strip()
+        top_act = str(args.get("action") or "").strip()
         if top_act:
             pl["action"] = top_act
     for k in (
@@ -186,6 +188,50 @@ def _normalize_invoke_daihuo_pipeline_args(args: Dict[str, Any]) -> Dict[str, An
         "output_dir",
         "isolate_job_dir",
         "image_request_style",
+    ):
+        if k in args and args[k] is not None:
+            pl.setdefault(k, args[k])
+    out = dict(args)
+    out["payload"] = pl
+    return out
+
+
+def _normalize_invoke_ecommerce_detail_pipeline_args(args: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(args, dict):
+        return args
+    if str(args.get("capability_id") or "").strip() != "comfly.ecommerce.detail_pipeline":
+        return args
+    raw_pl = args.get("payload")
+    pl: Dict[str, Any] = dict(raw_pl) if isinstance(raw_pl, dict) else {}
+    nested = pl.get("payload")
+    if isinstance(nested, dict) and (
+        (nested.get("action") or "").strip()
+        or (nested.get("job_id") or "").strip()
+        or nested.get("asset_id") is not None
+    ):
+        base = {k: v for k, v in pl.items() if k != "payload"}
+        pl = {**base, **nested}
+    if not (pl.get("action") or "").strip():
+        top_act = str(args.get("action") or "").strip()
+        if top_act:
+            pl["action"] = top_act
+    for k in (
+        "job_id",
+        "asset_id",
+        "image_url",
+        "product_name_hint",
+        "product_direction_hint",
+        "reference_asset_ids",
+        "reference_image_urls",
+        "page_count",
+        "auto_save",
+        "platform",
+        "country",
+        "language",
+        "analysis_model",
+        "image_model",
+        "output_dir",
+        "isolate_job_dir",
     ):
         if k in args and args[k] is not None:
             pl.setdefault(k, args[k])
@@ -2560,11 +2606,11 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
             return [{"type": "text", "text": json.dumps(data, ensure_ascii=False, indent=2)}], False
 
         if name == "manage_skills":
-            action = (args.get("action") or "").strip()
-            package_id = (args.get("package_id") or "").strip()
-            query = (args.get("query") or "").strip()
-            mcp_name = (args.get("name") or "").strip()
-            mcp_url = (args.get("url") or "").strip()
+            action = str(args.get("action") or "").strip()
+            package_id = str(args.get("package_id") or "").strip()
+            query = str(args.get("query") or "").strip()
+            mcp_name = str(args.get("name") or "").strip()
+            mcp_url = str(args.get("url") or "").strip()
 
             if action == "search_online":
                 if not query:
@@ -2632,7 +2678,8 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
             args = _normalize_invoke_task_get_result_args(args)
             args = _normalize_invoke_comfly_veo_args(args)
             args = _normalize_invoke_daihuo_pipeline_args(args)
-            capability_id = (args.get("capability_id") or "").strip()
+            args = _normalize_invoke_ecommerce_detail_pipeline_args(args)
+            capability_id = str(args.get("capability_id") or "").strip()
             payload = args.get("payload") or {}
             if not isinstance(payload, dict):
                 payload = {}
@@ -2954,6 +3001,60 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                         (_p.get("job_id") or "")[:16],
                         BASE_URL,
                     )
+                elif capability_id == "comfly.ecommerce.detail_pipeline":
+                    ec_act = (_p.get("action") or "").strip() or "run_pipeline"
+                    if ec_act == "start_pipeline":
+                        req_path = "/api/comfly-ecommerce-detail/pipeline/start"
+                        timeout_s = 120.0
+                    elif ec_act == "poll_pipeline":
+                        jid = (_p.get("job_id") or "").strip().lower()
+                        if (
+                            not jid
+                            or len(jid) != 32
+                            or any(c not in "0123456789abcdef" for c in jid)
+                        ):
+                            return [
+                                {
+                                    "type": "text",
+                                    "text": _json_dumps_mcp_payload(
+                                        {
+                                            "capability_id": capability_id,
+                                            "error": "poll_pipeline 需要有效的 payload.job_id（32 位十六进制）",
+                                        }
+                                    ),
+                                }
+                            ], True
+                        req_path = f"/api/comfly-ecommerce-detail/pipeline/jobs/{jid}"
+                        req_method = "GET"
+                        req_json = None
+                        timeout_s = 120.0
+                    else:
+                        req_path = "/api/comfly-ecommerce-detail/pipeline/run"
+                        timeout_s = 7200.0
+                    logger.info(
+                        "[MCP comfly.ecommerce.detail_pipeline] invoke has_token=%s action=%s asset_id=%s job_id=%s base_url=%s",
+                        bool(token),
+                        ec_act,
+                        _p.get("asset_id"),
+                        (_p.get("job_id") or "")[:16],
+                        BASE_URL,
+                    )
+                elif capability_id == "ecommerce.publish":
+                    ec_action = (_p.get("action") or "").strip() or "open_product_form"
+                    if ec_action == "list_shop_accounts":
+                        req_path = "/api/ecommerce-publish/accounts"
+                        req_method = "GET"
+                        timeout_s = 15.0
+                    else:
+                        req_path = "/api/ecommerce-publish/open-product-form"
+                        timeout_s = 120.0
+                    logger.info(
+                        "[MCP ecommerce.publish] invoke action=%s platform=%s nickname=%s base_url=%s",
+                        ec_action,
+                        _p.get("platform"),
+                        _p.get("account_nickname"),
+                        BASE_URL,
+                    )
                 else:
                     logger.info(
                         "[MCP comfly.veo] invoke has_token=%s action=%s asset_id=%s payload_keys=%s base_url=%s",
@@ -3044,6 +3145,43 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                                         "start_ack": data,
                                         "poll_error": polled,
                                     }
+                    if (
+                        capability_id == "comfly.ecommerce.detail_pipeline"
+                        and isinstance(data, dict)
+                        and data.get("ok", True)
+                    ):
+                        ec_act2 = (_p.get("action") or "").strip() or "run_pipeline"
+                        if ec_act2 == "start_pipeline":
+                            jid2 = (data.get("job_id") or "").strip()
+                            if jid2:
+                                waited = 0
+                                polled: Any = {"ok": False, "job_id": jid2, "status": "timeout"}
+                                while waited < 7200:
+                                    await asyncio.sleep(5)
+                                    waited += 5
+                                    try:
+                                        async with httpx.AsyncClient(timeout=120.0) as client:
+                                            pr = await client.get(
+                                                f"{BASE_URL.rstrip('/')}/api/comfly-ecommerce-detail/pipeline/jobs/{jid2}",
+                                                headers=_backend_headers(token, request),
+                                            )
+                                        if pr.status_code >= 400:
+                                            continue
+                                        polled = pr.json() if pr.content else {}
+                                    except Exception:
+                                        continue
+                                    st = (polled.get("status") or "").strip().lower() if isinstance(polled, dict) else ""
+                                    if st in ("completed", "failed"):
+                                        break
+                                if isinstance(polled, dict) and (polled.get("status") or "").strip():
+                                    data = polled
+                                else:
+                                    data = {
+                                        "ok": False,
+                                        "job_id": jid2,
+                                        "start_ack": data,
+                                        "poll_error": polled,
+                                    }
                     if capability_id == "comfly.veo" and isinstance(data, dict) and data.get("ok", True):
                         if (data.get("action") or "").strip() == "submit_video":
                             tid_poll = (data.get("task_id") or "").strip()
@@ -3114,6 +3252,10 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                         fail_msg = "本地剪辑调用失败"
                     elif capability_id == "comfly.veo.daihuo_pipeline":
                         fail_msg = "爆款TVC 整包成片后端调用失败"
+                    elif capability_id == "comfly.ecommerce.detail_pipeline":
+                        fail_msg = "电商详情图流水线后端调用失败"
+                    elif capability_id == "ecommerce.publish":
+                        fail_msg = "电商商品发布后端调用失败"
                     else:
                         fail_msg = "comfly.veo 后端调用失败"
                     return [{"type": "text", "text": f"{fail_msg}: {e}"}], True
@@ -3222,7 +3364,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
             return [{"type": "text", "text": text}], bool(upstream_error)
 
         if name == "save_asset":
-            url = (args.get("url") or "").strip()
+            url = str(args.get("url") or "").strip()
             if not url:
                 return [{"type": "text", "text": "请提供素材 URL"}], True
             body = {
@@ -3266,7 +3408,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                 params["scope"] = scope
             else:
                 params["scope"] = "all"
-            plat = (args.get("platform") or "").strip()
+            plat = str(args.get("platform") or "").strip()
             if plat:
                 params["platform"] = plat
             aid = args.get("account_id")
@@ -3275,7 +3417,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                     params["account_id"] = int(aid)
                 except (TypeError, ValueError):
                     pass
-            nick = (args.get("account_nickname") or "").strip()
+            nick = str(args.get("account_nickname") or "").strip()
             if nick:
                 params["account_nickname"] = nick
             async with httpx.AsyncClient(timeout=120.0) as client:
@@ -3298,11 +3440,11 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
             hl = args.get("headless")
             if hl is not None:
                 body["headless"] = bool(hl)
-            plat = (args.get("platform") or "").strip()
+            plat = str(args.get("platform") or "").strip()
             if plat:
                 body["platform"] = plat
             aid = args.get("account_id")
-            nick = (args.get("account_nickname") or "").strip()
+            nick = str(args.get("account_nickname") or "").strip()
             if aid is not None and str(aid).strip() != "":
                 try:
                     body["account_ids"] = [int(aid)]
@@ -3342,8 +3484,8 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
         if name == "publish_youtube_video":
             if not await _fetch_is_skill_store_admin(token):
                 return [{"type": "text", "text": "YouTube 上传为调试中能力，当前账号不可用。"}], True
-            asset_id = (args.get("asset_id") or "").strip()
-            yid = (args.get("youtube_account_id") or "").strip()
+            asset_id = str(args.get("asset_id") or "").strip()
+            yid = str(args.get("youtube_account_id") or "").strip()
             if not asset_id:
                 return [{"type": "text", "text": "请提供 asset_id"}], True
             if not yid:
@@ -3351,9 +3493,9 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
             body = {
                 "account_id": yid,
                 "asset_id": asset_id,
-                "title": (args.get("title") or "").strip(),
-                "description": (args.get("description") or "").strip(),
-                "privacy_status": (args.get("privacy_status") or "private").strip() or "private",
+                "title": str(args.get("title") or "").strip(),
+                "description": str(args.get("description") or "").strip(),
+                "privacy_status": str(args.get("privacy_status") or "private").strip() or "private",
             }
             if body["privacy_status"] not in ("private", "unlisted", "public"):
                 body["privacy_status"] = "private"
@@ -3375,7 +3517,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
         if name == "get_youtube_analytics":
             if not await _fetch_is_skill_store_admin(token):
                 return [{"type": "text", "text": "YouTube 数据为调试中能力，当前账号不可用。"}], True
-            yid = (args.get("youtube_account_id") or "").strip()
+            yid = str(args.get("youtube_account_id") or "").strip()
             if not yid:
                 return [{"type": "text", "text": "请提供 youtube_account_id（先调用 list_youtube_accounts）"}], True
             async with httpx.AsyncClient(timeout=60.0) as client:
@@ -3390,7 +3532,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
         if name == "sync_youtube_analytics":
             if not await _fetch_is_skill_store_admin(token):
                 return [{"type": "text", "text": "YouTube 数据为调试中能力，当前账号不可用。"}], True
-            yid = (args.get("youtube_account_id") or "").strip()
+            yid = str(args.get("youtube_account_id") or "").strip()
             if not yid:
                 return [{"type": "text", "text": "请提供 youtube_account_id（先调用 list_youtube_accounts）"}], True
             logger.info("[MCP] sync_youtube_analytics account_id=%s", yid)
@@ -3515,7 +3657,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
             return [{"type": "text", "text": text}], False
 
         if name == "open_account_browser":
-            nickname = (args.get("account_nickname") or "").strip()
+            nickname = str(args.get("account_nickname") or "").strip()
             if not nickname:
                 return [{"type": "text", "text": "请提供 account_nickname"}], True
             acct_id, nick_err = await _find_account_id_by_nickname(nickname, token, request)
@@ -3530,7 +3672,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
             return [{"type": "text", "text": text}], r.status_code >= 400
 
         if name == "check_account_login":
-            nickname = (args.get("account_nickname") or "").strip()
+            nickname = str(args.get("account_nickname") or "").strip()
             if not nickname:
                 return [{"type": "text", "text": "请提供 account_nickname"}], True
             acct_id, nick_err = await _find_account_id_by_nickname(nickname, token, request)
@@ -3545,8 +3687,8 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
             return [{"type": "text", "text": text}], r.status_code >= 400
 
         if name == "publish_content":
-            asset_id = (args.get("asset_id") or "").strip()
-            account_nickname = (args.get("account_nickname") or "").strip()
+            asset_id = str(args.get("asset_id") or "").strip()
+            account_nickname = str(args.get("account_nickname") or "").strip()
             opts_raw = args.get("options") if isinstance(args.get("options"), dict) else {}
             opts_effective: Dict[str, Any] = dict(opts_raw)
             allow_no_asset = _mcp_opts_toutiao_graphic_no_cover(opts_effective)
@@ -3685,7 +3827,7 @@ async def _handle_single_message(msg: Dict[str, Any], request: Request) -> Optio
     if method == "tools/call":
         name = params.get("name")
         arguments = params.get("arguments") or {}
-        cap_id = (arguments.get("capability_id") or "").strip() if name == "invoke_capability" else ""
+        cap_id = str(arguments.get("capability_id") or "").strip() if name == "invoke_capability" else ""
         token = _get_token_from_request(request)
         logger.info("[MCP] tools/call name=%s capability_id=%s", name, cap_id or "-")
         content, is_error = await _call_tool(name, arguments, token, request=request)

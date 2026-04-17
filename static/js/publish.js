@@ -22,7 +22,7 @@ document.querySelectorAll('.pub-tab').forEach(function(tab) {
   });
 });
 
-var PLATFORM_NAMES = { douyin: '抖音', bilibili: 'B站', xiaohongshu: '小红书', kuaishou: '快手', toutiao: '今日头条' };
+var PLATFORM_NAMES = { douyin: '抖音', bilibili: 'B站', xiaohongshu: '小红书', kuaishou: '快手', toutiao: '今日头条', douyin_shop: '抖店', xiaohongshu_shop: '小红书店铺', alibaba1688: '1688', taobao: '淘宝', pinduoduo: '拼多多' };
 var STATUS_LABELS = { active: '已登录', pending: '待登录', error: '异常' };
 var STATUS_COLORS = { active: '#34d399', pending: '#fb923c', error: '#f87171' };
 
@@ -1065,6 +1065,7 @@ function _renderAccountList(accounts) {
   el.innerHTML = accounts.map(function(a) {
     var statusColor = STATUS_COLORS[a.status] || '#888';
     var statusLabel = STATUS_LABELS[a.status] || a.status;
+    var detailBtn = '<button type="button" class="btn btn-primary btn-sm" data-open-account-detail="' + a.id + '" title="进入账号详情（数据与定时任务）">进入详情</button>';
     var openBtn = '<button type="button" class="btn btn-primary btn-sm" data-open-browser="' + a.id + '">打开浏览器</button>';
     var runsBtn = '<button type="button" class="btn btn-ghost btn-sm" data-schedule-runs-acct="' + a.id + '" title="间隔定时任务的执行记录">执行记录</button>';
     var publishBtn = '<button type="button" class="btn btn-primary btn-sm" data-publish-acct="' + a.id + '" data-publish-nick="' + escapeAttr(a.nickname) + '">发布素材</button>';
@@ -1094,7 +1095,7 @@ function _renderAccountList(accounts) {
       '<div class="card-desc" style="font-size:0.78rem;color:var(--text-muted);">' + escapeHtml(lastLogin) + '</div>' +
       (syncLine ? '<div class="card-desc" style="font-size:0.72rem;color:var(--text-muted);">' + escapeHtml(syncLine) + '</div>' : '') +
       schHint +
-      '<div class="card-actions" onclick="event.stopPropagation();">' + openBtn + ' ' + runsBtn + ' ' + publishBtn + ' ' + deleteBtn + '</div></div>';
+      '<div class="card-actions" onclick="event.stopPropagation();">' + detailBtn + ' ' + openBtn + ' ' + runsBtn + ' ' + publishBtn + ' ' + deleteBtn + '</div></div>';
   }).join('');
   _bindAccountButtons(el);
   _bindAccountCardClicks(el);
@@ -1138,6 +1139,13 @@ function loadAccounts() {
 }
 
 function _bindAccountButtons(el) {
+  el.querySelectorAll('button[data-open-account-detail]').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var id = parseInt(btn.getAttribute('data-open-account-detail'), 10);
+      if (id) openAccountDetailPanel(id);
+    });
+  });
   el.querySelectorAll('button[data-open-browser]').forEach(function(btn) {
     btn.addEventListener('click', function() {
       var id = btn.getAttribute('data-open-browser');

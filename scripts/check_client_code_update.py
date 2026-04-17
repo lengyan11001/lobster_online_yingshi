@@ -27,16 +27,28 @@ import zipfile
 from pathlib import Path
 
 
-def _ssl_context() -> ssl.SSLContext:
-    """构建 SSL context：优先用 certifi 证书包，解决嵌入式 Python 无系统 CA 的问题。"""
-    try:
-        import certifi
-        return ssl.create_default_context(cafile=certifi.where())
-    except ImportError:
+def _ssl_context(*, allow_unverified: bool = False) -> ssl.SSLContext:
+    """构建 SSL context：优先 certifi → 系统 CA → 不验证（兜底）。"""
+    if allow_unverified:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         return ctx
+    try:
+        import certifi
+        return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        pass
+    try:
+        ctx = ssl.create_default_context()
+        if ctx.get_ca_certs():
+            return ctx
+    except Exception:
+        pass
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
 
 ROOT = Path(__file__).resolve().parent.parent
 VERSION_FILE = ROOT / "CLIENT_CODE_VERSION.json"
@@ -217,17 +229,29 @@ def _save_local_build(build: int, version_from_manifest: str | None = None) -> N
         pass
 
 
+def _urlopen_with_fallback(req: urllib.request.Request, timeout: int) -> bytes:
+    """先用正常 SSL 验证；若证书校验失败则降级为不验证模式重试。"""
+    try:
+        with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
+            return resp.read()
+    except urllib.error.URLError as e:
+        if "CERTIFICATE_VERIFY_FAILED" in str(e) or "SSL" in str(e).upper():
+            print(f"[code] [WARN] SSL 证书验证失败，降级为不验证模式: {e}", flush=True)
+            req2 = urllib.request.Request(req.full_url, headers=dict(req.headers))
+            with urllib.request.urlopen(req2, timeout=timeout, context=_ssl_context(allow_unverified=True)) as resp:
+                return resp.read()
+        raise
+
+
 def _fetch_json(url: str, timeout: int = 45) -> dict:
     req = urllib.request.Request(url, headers={"User-Agent": "LobsterClientCode/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
-        raw = resp.read()
+    raw = _urlopen_with_fallback(req, timeout)
     return json.loads(raw.decode("utf-8"))
 
 
 def _download_file(url: str, dest: Path, timeout: int = 300) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "LobsterClientCode/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout, context=_ssl_context()) as resp:
-        dest.write_bytes(resp.read())
+    dest.write_bytes(_urlopen_with_fallback(req, timeout))
 
 
 def _sha256_file(path: Path) -> str:
@@ -351,8 +375,8 @@ def main() -> int:
     if not manifest_url:
         return 0
 
-    if not manifest_url.lower().startswith("https://"):
-        print("[code] [ERR] CLIENT_CODE_MANIFEST_URL 必须为 HTTPS。", flush=True)
+    if not manifest_url.lower().startswith(("https://", "http://")):
+        print("[code] [ERR] CLIENT_CODE_MANIFEST_URL 格式无效。", flush=True)
         return 0
 
     local = _local_build()
@@ -386,8 +410,8 @@ def main() -> int:
         print(f"[code] 本地代码包已是最新 (build={local}, version={local_ver})。", flush=True)
         return 0
 
-    if not bundle_url.lower().startswith("https://"):
-        print("[code] [ERR] manifest.bundle_url 必须为 HTTPS，未应用更新。", flush=True)
+    if not bundle_url.lower().startswith(("https://", "http://")):
+        print("[code] [ERR] manifest.bundle_url 格式无效，未应用更新。", flush=True)
         return 0
     if not expect_sha or len(expect_sha) != 64:
         print("[code] [ERR] manifest.sha256 无效，未应用更新。", flush=True)

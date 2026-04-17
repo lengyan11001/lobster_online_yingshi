@@ -279,6 +279,11 @@ SUPPORTED_PLATFORMS = {
     "xiaohongshu": {"name": "小红书", "login_url": "https://creator.xiaohongshu.com"},
     "kuaishou": {"name": "快手", "login_url": "https://cp.kuaishou.com"},
     "toutiao": {"name": "今日头条", "login_url": "https://mp.toutiao.com/login/"},
+    "douyin_shop": {"name": "抖店", "login_url": "https://fxg.jinritemai.com/"},
+    "xiaohongshu_shop": {"name": "小红书店铺", "login_url": "https://ark.xiaohongshu.com/"},
+    "alibaba1688": {"name": "1688", "login_url": "https://work.1688.com/"},
+    "taobao": {"name": "淘宝", "login_url": "https://seller.taobao.com/"},
+    "pinduoduo": {"name": "拼多多", "login_url": "https://mms.pinduoduo.com/"},
 }
 
 def _ensure_tiny_mp4(path: Path) -> Path:

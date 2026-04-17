@@ -244,12 +244,65 @@ function setSessionPending(id, pending) {
   }
   if (next) chatPendingBySession[sid] = true;
   else delete chatPendingBySession[sid];
-  if (s) s.pending = next;
+  if (s) {
+    s.pending = next;
+    if (!next) { delete s._typingState; _stopTypingStateSyncTimer(); }
+  }
   try {
     saveChatSessionsToStorage();
   } catch (e1) {}
   refreshChatInputState();
   renderChatSessionList();
+}
+
+function _saveSessionTypingState(sid, mainText, step, stepMode) {
+  var s = getSessionById(String(sid || ''));
+  if (!s) return;
+  if (!s._typingState) s._typingState = { mainText: '正在处理…', steps: [], _ver: 0 };
+  if (mainText != null) { s._typingState.mainText = mainText; s._typingState._ver = (s._typingState._ver || 0) + 1; }
+  if (step != null) {
+    s._typingState._ver = (s._typingState._ver || 0) + 1;
+    if (stepMode === 'replace_last' && s._typingState.steps.length) {
+      s._typingState.steps[s._typingState.steps.length - 1] = step;
+    } else if (stepMode === 'append') {
+      s._typingState.steps.push(step);
+    }
+  }
+}
+function _clearSessionTypingState(sid) {
+  var s = getSessionById(String(sid || ''));
+  if (s) delete s._typingState;
+  _stopTypingStateSyncTimer();
+}
+
+var _typingStateSyncTimer = null;
+var _typingStateSyncLastVer = -1;
+var _typingStateSyncLastStepCount = -1;
+
+function _startTypingStateSyncTimer(sid) {
+  _stopTypingStateSyncTimer();
+  _typingStateSyncLastVer = -1;
+  _typingStateSyncLastStepCount = -1;
+  _typingStateSyncTimer = setInterval(function() {
+    if (String(currentSessionId) !== String(sid)) { _stopTypingStateSyncTimer(); return; }
+    var s = getSessionById(String(sid));
+    if (!s || !s._typingState || !isSessionPending(sid)) { _stopTypingStateSyncTimer(); return; }
+    var ts = s._typingState;
+    var ver = ts._ver || 0;
+    var stepCount = (ts.steps || []).length;
+    if (ver === _typingStateSyncLastVer && stepCount === _typingStateSyncLastStepCount) return;
+    setChatTypingMainText(ts.mainText || '正在处理…');
+    if (stepCount > _typingStateSyncLastStepCount && _typingStateSyncLastStepCount >= 0) {
+      for (var i = _typingStateSyncLastStepCount; i < stepCount; i++) {
+        appendChatTypingStep(ts.steps[i]);
+      }
+    }
+    _typingStateSyncLastVer = ver;
+    _typingStateSyncLastStepCount = stepCount;
+  }, 2000);
+}
+function _stopTypingStateSyncTimer() {
+  if (_typingStateSyncTimer != null) { clearInterval(_typingStateSyncTimer); _typingStateSyncTimer = null; }
 }
 
 /** 与 chatSessions JSON 并列：按会话 id 单独存 poll_resume，避免会话对象未找到时整段不落盘 */
@@ -488,10 +541,20 @@ function renderCurrentSessionMessages() {
       appendChatMessage(m.role, m.content);
     }
   });
+  _stopTypingStateSyncTimer();
   if (sid && isSessionPending(sid)) {
     showChatTypingIndicator();
     var s0 = getSessionById(sid);
-    if (s0 && (s0.poll_resume_task_id || '').trim()) {
+    if (s0 && s0._typingState) {
+      setChatTypingMainText(s0._typingState.mainText || '正在处理…');
+      var savedSteps = s0._typingState.steps || [];
+      for (var si = 0; si < savedSteps.length; si++) {
+        appendChatTypingStep(savedSteps[si]);
+      }
+      _typingStateSyncLastVer = s0._typingState._ver || 0;
+      _typingStateSyncLastStepCount = savedSteps.length;
+      _startTypingStateSyncTimer(sid);
+    } else if (s0 && (s0.poll_resume_task_id || '').trim()) {
       setChatTypingMainText('正在查询生成结果…（恢复连接）');
     }
   }
@@ -503,6 +566,7 @@ function renderCurrentSessionMessages() {
 
 function _normalizeSessionPendingAfterLoad(s) {
   if (!s) return false;
+  delete s._typingState;
   var changed = false;
   var tid = (s.poll_resume_task_id || '').trim();
   if (tid) {
@@ -693,8 +757,9 @@ function renderChatSessionList() {
     var preview = getSessionPreview(s);
     var time = formatSessionTime(s.updatedAt);
     var active = s.id === currentSessionId ? ' active' : '';
+    var pendingDot = isSessionPending(s.id) ? '<span class="session-pending-dot" title="任务进行中"></span>' : '';
     return '<div class="chat-session-item' + active + '" data-session-id="' + escapeAttr(s.id) + '">' +
-      '<div class="session-title">' + escapeHtml(title) + '</div>' +
+      '<div class="session-title">' + pendingDot + escapeHtml(title) + '</div>' +
       '<div class="session-preview">' + escapeHtml(preview) + '</div>' +
       '<div class="session-time">' + escapeHtml(time) + '</div></div>';
   }).join('');
@@ -1524,57 +1589,67 @@ function resumeChatStreamForTaskPoll(sid, taskId) {
                   return reader.read().then(processChunk);
                 });
               });
-            } else if (ev.type === 'tool_start' && String(currentSessionId) === sid) {
+            } else if (ev.type === 'tool_start') {
+              var _isAct = String(currentSessionId) === sid;
               if (ev.task_id) persistSessionPollResumeTaskId(sid, ev.task_id);
               if (ev.name === 'list_capabilities') {
-                appendChatTypingStep('正在查询可用能力…');
+                _saveSessionTypingState(sid, null, '正在查询可用能力…', 'append');
+                if (_isAct) appendChatTypingStep('正在查询可用能力…');
               } else if (ev.phase === 'video_submit') {
-                appendChatTypingStep('正在提交视频生成任务…');
+                _saveSessionTypingState(sid, null, '正在提交视频生成任务…', 'append');
+                if (_isAct) appendChatTypingStep('正在提交视频生成任务…');
               } else if (ev.phase === 'image_submit') {
-                appendChatTypingStep('正在提交图片生成任务…');
+                _saveSessionTypingState(sid, null, '正在提交图片生成任务…', 'append');
+                if (_isAct) appendChatTypingStep('正在提交图片生成任务…');
               } else if (ev.phase === 'task_polling') {
                 chatStreamSutuiSubmitted = true;
-                refreshChatInputState();
-                setChatTypingMainText(
-                  streamKindResume
-                    ? '正在恢复并查询生成结果（约每 15 秒更新；超过 ' +
-                        Math.round(_RESUME_CHAT_STREAM_MAX_MS / 60000) +
-                        ' 分钟仍未结束将自动停止恢复，任务可能在后台继续）…'
-                    : '正在查询生成结果（约每 15 秒自动更新）…'
-                );
+                if (_isAct) refreshChatInputState();
+                var _pollMain = streamKindResume
+                  ? '正在恢复并查询生成结果（约每 15 秒更新；超过 ' +
+                      Math.round(_RESUME_CHAT_STREAM_MAX_MS / 60000) +
+                      ' 分钟仍未结束将自动停止恢复，任务可能在后台继续）…'
+                  : '正在查询生成结果（约每 15 秒自动更新）…';
+                _saveSessionTypingState(sid, _pollMain, null, null);
+                if (_isAct) setChatTypingMainText(_pollMain);
               } else {
-                appendChatTypingStep('正在 ' + _toolLabel(ev.name) + '…');
+                var _sStep = '正在 ' + _toolLabel(ev.name) + '…';
+                _saveSessionTypingState(sid, null, _sStep, 'append');
+                if (_isAct) appendChatTypingStep(_sStep);
               }
-            } else if (ev.type === 'tool_end' && String(currentSessionId) === sid) {
+            } else if (ev.type === 'tool_end') {
+              var _isAct2 = String(currentSessionId) === sid;
               if (ev.task_id) persistSessionPollResumeTaskId(sid, ev.task_id);
               if ((ev.phase === 'image_submit' || ev.phase === 'video_submit') && ev.success !== false) {
                 chatStreamSutuiSubmitted = true;
-                refreshChatInputState();
+                if (_isAct2) refreshChatInputState();
               }
               if (ev.phase === 'video_submit') {
                 if (ev.success === false) {
                   var failPrev = (ev.preview || '').trim();
-                  updateLastChatTypingStep(
-                    failPrev ? ('✗ 提交未成功：' + (failPrev.length > 140 ? failPrev.slice(0, 140) + '…' : failPrev))
-                      : '✗ 任务提交失败，请查看下方回复'
-                  );
+                  var _ft = failPrev ? ('✗ 提交未成功：' + (failPrev.length > 140 ? failPrev.slice(0, 140) + '…' : failPrev))
+                    : '✗ 任务提交失败，请查看下方回复';
+                  _saveSessionTypingState(sid, null, _ft, 'replace_last');
+                  if (_isAct2) updateLastChatTypingStep(_ft);
                 } else {
-                  updateLastChatTypingStep('✓ 任务已提交成功，正在查询生成结果…');
+                  _saveSessionTypingState(sid, null, '✓ 任务已提交成功，正在查询生成结果…', 'replace_last');
+                  if (_isAct2) updateLastChatTypingStep('✓ 任务已提交成功，正在查询生成结果…');
                 }
               } else if (ev.phase === 'image_submit') {
                 if (ev.success === false) {
                   var failPrevImg = (ev.preview || '').trim();
-                  updateLastChatTypingStep(
-                    failPrevImg ? ('✗ 提交未成功：' + (failPrevImg.length > 140 ? failPrevImg.slice(0, 140) + '…' : failPrevImg))
-                      : '✗ 任务提交失败，请查看下方回复'
-                  );
+                  var _fti = failPrevImg ? ('✗ 提交未成功：' + (failPrevImg.length > 140 ? failPrevImg.slice(0, 140) + '…' : failPrevImg))
+                    : '✗ 任务提交失败，请查看下方回复';
+                  _saveSessionTypingState(sid, null, _fti, 'replace_last');
+                  if (_isAct2) updateLastChatTypingStep(_fti);
                 } else {
                   if (ev.saved_assets && ev.saved_assets.length) {
                     streamGeneratedAssets = ev.saved_assets.slice();
                     saveGeneratedAssetsToLocal(streamGeneratedAssets, savedAssetUrls);
-                    updateLastChatTypingStep('✓ 素材已生成');
+                    _saveSessionTypingState(sid, null, '✓ 素材已生成', 'replace_last');
+                    if (_isAct2) updateLastChatTypingStep('✓ 素材已生成');
                   } else {
-                    updateLastChatTypingStep('✓ 任务已提交成功，正在查询生成结果…');
+                    _saveSessionTypingState(sid, null, '✓ 任务已提交成功，正在查询生成结果…', 'replace_last');
+                    if (_isAct2) updateLastChatTypingStep('✓ 任务已提交成功，正在查询生成结果…');
                   }
                 }
               } else if (ev.phase === 'task_polling') {
@@ -1587,35 +1662,48 @@ function resumeChatStreamForTaskPoll(sid, taskId) {
                     saveGeneratedAssetsToLocal(streamGeneratedAssets, savedAssetUrls);
                   }
                   if (!videoGeneratedShown) {
-                    updateLastChatTypingStep('✓ 素材已生成');
+                    _saveSessionTypingState(sid, null, '✓ 素材已生成', 'replace_last');
+                    if (_isAct2) updateLastChatTypingStep('✓ 素材已生成');
                     videoGeneratedShown = true;
                   }
-                  if (streamGeneratedAssets.length) appendChatGeneratedAssetsToTyping(streamGeneratedAssets);
-                  setChatTypingMainText('正在请模型撰写回复…');
+                  if (streamGeneratedAssets.length && _isAct2) appendChatGeneratedAssetsToTyping(streamGeneratedAssets);
+                  _saveSessionTypingState(sid, '正在请模型撰写回复…', null, null);
+                  if (_isAct2) setChatTypingMainText('正在请模型撰写回复…');
                 } else if (!taskPollingCompleted) {
-                  updateLastChatTypingStep('正在查询生成结果…');
+                  _saveSessionTypingState(sid, null, '正在查询生成结果…', 'replace_last');
+                  if (_isAct2) updateLastChatTypingStep('正在查询生成结果…');
                 }
               } else if (ev.name === 'list_capabilities') {
-                updateLastChatTypingStep('✓ 能力列表已获取');
+                _saveSessionTypingState(sid, null, '✓ 能力列表已获取', 'replace_last');
+                if (_isAct2) updateLastChatTypingStep('✓ 能力列表已获取');
               } else {
                 if (ev.success !== false && ev.saved_assets && ev.saved_assets.length) {
                   streamGeneratedAssets = ev.saved_assets.slice();
                   saveGeneratedAssetsToLocal(streamGeneratedAssets, savedAssetUrls);
-                  appendChatGeneratedAssetsToTyping(streamGeneratedAssets);
-                  updateLastChatTypingStep('✓ 素材已生成');
-                  setChatTypingMainText('正在请模型撰写回复…');
+                  _saveSessionTypingState(sid, '正在请模型撰写回复…', '✓ 素材已生成', 'replace_last');
+                  if (_isAct2) {
+                    appendChatGeneratedAssetsToTyping(streamGeneratedAssets);
+                    updateLastChatTypingStep('✓ 素材已生成');
+                    setChatTypingMainText('正在请模型撰写回复…');
+                  }
                 } else {
-                  updateLastChatTypingStep('✓ ' + _toolLabel(ev.name) + ' 完成');
+                  var _endT = '✓ ' + _toolLabel(ev.name) + ' 完成';
+                  _saveSessionTypingState(sid, null, _endT, 'replace_last');
+                  if (_isAct2) updateLastChatTypingStep(_endT);
                 }
               }
-            } else if (ev.type === 'task_poll' && String(currentSessionId) === sid) {
+            } else if (ev.type === 'task_poll') {
               if (ev.task_id) persistSessionPollResumeTaskId(sid, ev.task_id);
               if (!ev.message || taskPollingCompleted) continue;
-              setChatTypingMainText(_formatTaskPollTypingLine(ev));
-            } else if (ev.type === 'status' && String(currentSessionId) === sid && ev.message) {
+              var _pollLine = _formatTaskPollTypingLine(ev);
+              _saveSessionTypingState(sid, _pollLine, null, null);
+              if (String(currentSessionId) === sid) setChatTypingMainText(_pollLine);
+            } else if (ev.type === 'status' && ev.message) {
               if (ev.message === '正在请模型撰写回复…' || ev.message === '正在生成回复…') continue;
-              appendChatTypingStep(ev.message);
+              _saveSessionTypingState(sid, null, ev.message, 'append');
+              if (String(currentSessionId) === sid) appendChatTypingStep(ev.message);
             } else if (ev.type === 'done') {
+              _clearSessionTypingState(sid);
               return Promise.resolve(ev);
             }
           } catch (e) {}
@@ -1625,6 +1713,7 @@ function resumeChatStreamForTaskPoll(sid, taskId) {
       return reader.read().then(processChunk);
     })
     .then(function(doneEv) {
+      _clearSessionTypingState(sid);
       clearSessionPollResume(sid);
       var targetSession = getSessionById(sid);
       if (!targetSession) return;
@@ -1646,6 +1735,7 @@ function resumeChatStreamForTaskPoll(sid, taskId) {
     .catch(function(e) {
       if (e && e.name === 'AbortError') {
         if (resumeAbortReason === 'deadline') {
+          _clearSessionTypingState(sid);
           clearSessionPollResume(sid);
           var targetDead = getSessionById(sid);
           var tdetail =
@@ -1842,57 +1932,67 @@ function sendChatMessage() {
                   return reader.read().then(processChunk);
                 });
               });
-            } else if (ev.type === 'tool_start' && String(currentSessionId) === sid) {
+            } else if (ev.type === 'tool_start') {
+              var _isAct = String(currentSessionId) === sid;
               if (ev.task_id) persistSessionPollResumeTaskId(sid, ev.task_id);
               if (ev.name === 'list_capabilities') {
-                appendChatTypingStep('正在查询可用能力…');
+                _saveSessionTypingState(sid, null, '正在查询可用能力…', 'append');
+                if (_isAct) appendChatTypingStep('正在查询可用能力…');
               } else if (ev.phase === 'video_submit') {
-                appendChatTypingStep('正在提交视频生成任务…');
+                _saveSessionTypingState(sid, null, '正在提交视频生成任务…', 'append');
+                if (_isAct) appendChatTypingStep('正在提交视频生成任务…');
               } else if (ev.phase === 'image_submit') {
-                appendChatTypingStep('正在提交图片生成任务…');
+                _saveSessionTypingState(sid, null, '正在提交图片生成任务…', 'append');
+                if (_isAct) appendChatTypingStep('正在提交图片生成任务…');
               } else if (ev.phase === 'task_polling') {
                 chatStreamSutuiSubmitted = true;
-                refreshChatInputState();
-                setChatTypingMainText(
-                  streamKindResume
-                    ? '正在恢复并查询生成结果（约每 15 秒更新；超过 ' +
-                        Math.round(_RESUME_CHAT_STREAM_MAX_MS / 60000) +
-                        ' 分钟仍未结束将自动停止恢复，任务可能在后台继续）…'
-                    : '正在查询生成结果（约每 15 秒自动更新）…'
-                );
+                if (_isAct) refreshChatInputState();
+                var _pollMain = streamKindResume
+                  ? '正在恢复并查询生成结果（约每 15 秒更新；超过 ' +
+                      Math.round(_RESUME_CHAT_STREAM_MAX_MS / 60000) +
+                      ' 分钟仍未结束将自动停止恢复，任务可能在后台继续）…'
+                  : '正在查询生成结果（约每 15 秒自动更新）…';
+                _saveSessionTypingState(sid, _pollMain, null, null);
+                if (_isAct) setChatTypingMainText(_pollMain);
               } else {
-                appendChatTypingStep('正在 ' + _toolLabel(ev.name) + '…');
+                var _sStep = '正在 ' + _toolLabel(ev.name) + '…';
+                _saveSessionTypingState(sid, null, _sStep, 'append');
+                if (_isAct) appendChatTypingStep(_sStep);
               }
-            } else if (ev.type === 'tool_end' && String(currentSessionId) === sid) {
+            } else if (ev.type === 'tool_end') {
+              var _isAct2 = String(currentSessionId) === sid;
               if (ev.task_id) persistSessionPollResumeTaskId(sid, ev.task_id);
               if ((ev.phase === 'image_submit' || ev.phase === 'video_submit') && ev.success !== false) {
                 chatStreamSutuiSubmitted = true;
-                refreshChatInputState();
+                if (_isAct2) refreshChatInputState();
               }
               if (ev.phase === 'video_submit') {
                 if (ev.success === false) {
                   var failPrev = (ev.preview || '').trim();
-                  updateLastChatTypingStep(
-                    failPrev ? ('✗ 提交未成功：' + (failPrev.length > 140 ? failPrev.slice(0, 140) + '…' : failPrev))
-                      : '✗ 任务提交失败，请查看下方回复'
-                  );
+                  var _ft = failPrev ? ('✗ 提交未成功：' + (failPrev.length > 140 ? failPrev.slice(0, 140) + '…' : failPrev))
+                    : '✗ 任务提交失败，请查看下方回复';
+                  _saveSessionTypingState(sid, null, _ft, 'replace_last');
+                  if (_isAct2) updateLastChatTypingStep(_ft);
                 } else {
-                  updateLastChatTypingStep('✓ 任务已提交成功，正在查询生成结果…');
+                  _saveSessionTypingState(sid, null, '✓ 任务已提交成功，正在查询生成结果…', 'replace_last');
+                  if (_isAct2) updateLastChatTypingStep('✓ 任务已提交成功，正在查询生成结果…');
                 }
               } else if (ev.phase === 'image_submit') {
                 if (ev.success === false) {
                   var failPrevImg = (ev.preview || '').trim();
-                  updateLastChatTypingStep(
-                    failPrevImg ? ('✗ 提交未成功：' + (failPrevImg.length > 140 ? failPrevImg.slice(0, 140) + '…' : failPrevImg))
-                      : '✗ 任务提交失败，请查看下方回复'
-                  );
+                  var _fti = failPrevImg ? ('✗ 提交未成功：' + (failPrevImg.length > 140 ? failPrevImg.slice(0, 140) + '…' : failPrevImg))
+                    : '✗ 任务提交失败，请查看下方回复';
+                  _saveSessionTypingState(sid, null, _fti, 'replace_last');
+                  if (_isAct2) updateLastChatTypingStep(_fti);
                 } else {
                   if (ev.saved_assets && ev.saved_assets.length) {
                     streamGeneratedAssets = ev.saved_assets.slice();
                     saveGeneratedAssetsToLocal(streamGeneratedAssets, savedAssetUrls);
-                    updateLastChatTypingStep('✓ 素材已生成');
+                    _saveSessionTypingState(sid, null, '✓ 素材已生成', 'replace_last');
+                    if (_isAct2) updateLastChatTypingStep('✓ 素材已生成');
                   } else {
-                    updateLastChatTypingStep('✓ 任务已提交成功，正在查询生成结果…');
+                    _saveSessionTypingState(sid, null, '✓ 任务已提交成功，正在查询生成结果…', 'replace_last');
+                    if (_isAct2) updateLastChatTypingStep('✓ 任务已提交成功，正在查询生成结果…');
                   }
                 }
               } else if (ev.phase === 'task_polling') {
@@ -1905,35 +2005,48 @@ function sendChatMessage() {
                     saveGeneratedAssetsToLocal(streamGeneratedAssets, savedAssetUrls);
                   }
                   if (!videoGeneratedShown) {
-                    updateLastChatTypingStep('✓ 素材已生成');
+                    _saveSessionTypingState(sid, null, '✓ 素材已生成', 'replace_last');
+                    if (_isAct2) updateLastChatTypingStep('✓ 素材已生成');
                     videoGeneratedShown = true;
                   }
-                  if (streamGeneratedAssets.length) appendChatGeneratedAssetsToTyping(streamGeneratedAssets);
-                  setChatTypingMainText('正在请模型撰写回复…');
+                  if (streamGeneratedAssets.length && _isAct2) appendChatGeneratedAssetsToTyping(streamGeneratedAssets);
+                  _saveSessionTypingState(sid, '正在请模型撰写回复…', null, null);
+                  if (_isAct2) setChatTypingMainText('正在请模型撰写回复…');
                 } else if (!taskPollingCompleted) {
-                  updateLastChatTypingStep('正在查询生成结果…');
+                  _saveSessionTypingState(sid, null, '正在查询生成结果…', 'replace_last');
+                  if (_isAct2) updateLastChatTypingStep('正在查询生成结果…');
                 }
               } else if (ev.name === 'list_capabilities') {
-                updateLastChatTypingStep('✓ 能力列表已获取');
+                _saveSessionTypingState(sid, null, '✓ 能力列表已获取', 'replace_last');
+                if (_isAct2) updateLastChatTypingStep('✓ 能力列表已获取');
               } else {
                 if (ev.success !== false && ev.saved_assets && ev.saved_assets.length) {
                   streamGeneratedAssets = ev.saved_assets.slice();
                   saveGeneratedAssetsToLocal(streamGeneratedAssets, savedAssetUrls);
-                  appendChatGeneratedAssetsToTyping(streamGeneratedAssets);
-                  updateLastChatTypingStep('✓ 素材已生成');
-                  setChatTypingMainText('正在请模型撰写回复…');
+                  _saveSessionTypingState(sid, '正在请模型撰写回复…', '✓ 素材已生成', 'replace_last');
+                  if (_isAct2) {
+                    appendChatGeneratedAssetsToTyping(streamGeneratedAssets);
+                    updateLastChatTypingStep('✓ 素材已生成');
+                    setChatTypingMainText('正在请模型撰写回复…');
+                  }
                 } else {
-                  updateLastChatTypingStep('✓ ' + _toolLabel(ev.name) + ' 完成');
+                  var _endT = '✓ ' + _toolLabel(ev.name) + ' 完成';
+                  _saveSessionTypingState(sid, null, _endT, 'replace_last');
+                  if (_isAct2) updateLastChatTypingStep(_endT);
                 }
               }
-            } else if (ev.type === 'task_poll' && String(currentSessionId) === sid) {
+            } else if (ev.type === 'task_poll') {
               if (ev.task_id) persistSessionPollResumeTaskId(sid, ev.task_id);
               if (!ev.message || taskPollingCompleted) continue;
-              setChatTypingMainText(_formatTaskPollTypingLine(ev));
-            } else if (ev.type === 'status' && String(currentSessionId) === sid && ev.message) {
+              var _pollLine = _formatTaskPollTypingLine(ev);
+              _saveSessionTypingState(sid, _pollLine, null, null);
+              if (String(currentSessionId) === sid) setChatTypingMainText(_pollLine);
+            } else if (ev.type === 'status' && ev.message) {
               if (ev.message === '正在请模型撰写回复…' || ev.message === '正在生成回复…') continue;
-              appendChatTypingStep(ev.message);
+              _saveSessionTypingState(sid, null, ev.message, 'append');
+              if (String(currentSessionId) === sid) appendChatTypingStep(ev.message);
             } else if (ev.type === 'done') {
+              _clearSessionTypingState(sid);
               return Promise.resolve(ev);
             }
           } catch (e) {}
@@ -1943,6 +2056,7 @@ function sendChatMessage() {
       return reader.read().then(processChunk);
     })
     .then(function(doneEv) {
+      _clearSessionTypingState(sid);
       clearSessionPollResume(sid);
       var targetSession = getSessionById(sid);
       if (!targetSession) return;

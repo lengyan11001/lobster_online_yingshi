@@ -1,0 +1,47 @@
+{
+  "template_id": "detail_template_03",
+  "display_name": "French Gallery Detail",
+  "common": {
+    "width": 790,
+    "default_height": 1320,
+    "min_height": 700,
+    "margin": 48,
+    "page_gap_px": 0
+  },
+  "colors": {
+    "accent": "#c78868",
+    "dark": "#2f241e",
+    "muted": "#7f6d62",
+    "canvas": "#f8f3ef",
+    "card": "#fdf9f5",
+    "cover_overlay": "rgba(30,20,16,0.34)"
+  },
+  "heights": {
+    "hero_cover": 1380,
+    "overview_summary": 1240,
+    "feature_focus": 1320,
+    "scene_usage": 1320,
+    "material_cleaning": 1280,
+    "trust_reassurance": 1100,
+    "closing_summary": 1060,
+    "spec_table": 940
+  },
+  "slot_aliases": {
+    "cover": "hero_cover",
+    "hero_cover": "hero_cover",
+    "overview": "overview_summary",
+    "feature": "feature_focus",
+    "scene": "scene_usage",
+    "material": "material_cleaning",
+    "trust": "trust_reassurance",
+    "closing": "closing_summary",
+    "spec_table": "spec_table"
+  },
+  "spec_table": {
+    "columns": 2,
+    "card_height": 180,
+    "card_radius": 32,
+    "card_gap_x": 20,
+    "card_gap_y": 20
+  }
+}

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -176,9 +176,13 @@ class WecomConfig(Base):
     token: Mapped[str] = mapped_column(String(255), nullable=False)
     encoding_aes_key: Mapped[str] = mapped_column(String(255), nullable=False)
     corp_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    secret: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    contacts_secret: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    agent_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     product_knowledge: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     enterprise_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     product_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
+    auto_reply_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
@@ -401,7 +405,7 @@ class CreatorContentSnapshot(Base):
 # ── 独立计费：算力账号（耗算力时用哪个速推 Token）、充值订单 ────────────────────────
 
 class ConsumptionAccount(Base):
-    """算力账号：用户可配置多个，每个可绑定速推 Token；调用能力时用其一，扣主账号积分。"""
+    """算力账号：用户可配置多个，每个可绑定速推 Token；调用能力时用其一，扣主账号算力。"""
     __tablename__ = "consumption_accounts"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -412,8 +416,23 @@ class ConsumptionAccount(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class EcommerceDetailJob(Base):
+    """电商详情图流水线任务持久化：保存 comfly 套图任务的分组结果，重启后仍可查回。"""
+    __tablename__ = "ecommerce_detail_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    job_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="running", nullable=False, index=True)
+    product_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    saved_assets: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, onupdate=datetime.utcnow)
+
+
 class RechargeOrder(Base):
-    """自有充值订单：用户购买积分套餐，支付完成后加积分。"""
+    """自有充值订单：用户购买算力套餐，支付完成后加算力。"""
     __tablename__ = "recharge_orders"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -424,4 +443,71 @@ class RechargeOrder(Base):
     out_trade_no: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     payment_method: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class WecomScheduledMessage(Base):
+    """企微定时消息：周几 + 几点发送。"""
+    __tablename__ = "wecom_scheduled_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    wecom_config_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    send_type: Mapped[str] = mapped_column(String(16), nullable=False, default="user")
+    to_user: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    to_party: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    chatid: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    msg_type: Mapped[str] = mapped_column(String(32), nullable=False, default="text")
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    weekdays: Mapped[str] = mapped_column(String(32), nullable=False)
+    send_time: Mapped[str] = mapped_column(String(8), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    last_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class KfAccount(Base):
+    """微信客服账号（本地跟踪）。"""
+    __tablename__ = "wecom_kf_accounts"
+    __table_args__ = (UniqueConstraint("wecom_config_id", "open_kfid", name="uq_kf_account_config_kfid"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    wecom_config_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    open_kfid: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False, default="AI客服")
+    url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    auto_reply_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    sync_cursor: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class KfCustomer(Base):
+    """微信客服会话客户。"""
+    __tablename__ = "wecom_kf_customers"
+    __table_args__ = (UniqueConstraint("kf_account_id", "external_userid", name="uq_kf_customer_kf_external"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    kf_account_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    external_userid: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    nickname: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    avatar: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    last_msg_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class KfMessage(Base):
+    """微信客服消息记录。"""
+    __tablename__ = "wecom_kf_messages"
+    __table_args__ = (Index("ix_kf_msg_account_external", "kf_account_id", "external_userid"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    kf_account_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    external_userid: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    msgid: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, unique=True)
+    direction: Mapped[str] = mapped_column(String(8), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    msg_type: Mapped[str] = mapped_column(String(32), nullable=False, default="text")
+    origin: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    send_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)

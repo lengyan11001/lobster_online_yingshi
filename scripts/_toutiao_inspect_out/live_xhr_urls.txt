@@ -1,0 +1,2 @@
+https://mssdk.bytedance.com/web/common?ms_appid=1231&msToken=eE-3PdehU-V0exgNiSz5f2jd94DHqph9pmMFWUQeKt9mHA61OA1jY3oiRhLxAImmNfCxou9QoyStlkpy7lVhIU-HBv1I9Jdh45i2ToXj_lNBaAaaIbeFjapibCyNqJFwUrbT2onwmqK18dGmNbIPEC13WdMNnQiVp9g%3D
+https://mssdk.bytedance.com/web/r/token

@@ -1,5 +1,5 @@
 /** 定死：公网 lobster_server（登录/验证码/auth/me；与 pack_bundle AUTH_SERVER_BASE 一致；走 HTTPS 与 Nginx 443） */
-var LOBSTER_SERVER_PUBLIC = 'https://api.51ins.com';
+var LOBSTER_SERVER_PUBLIC = 'http://42.194.209.150';
 
 (function setApiBaseFromUrl() {
   // 本机回环：优先用当前页 origin（含真实端口）。port 为空时（如默认 80）不能误写成 :8000，否则会连错端口 → Failed to fetch
@@ -57,10 +57,10 @@ var LOCAL_API_BASE = (typeof window.__LOCAL_API_BASE !== 'undefined' ? window.__
 /** Messenger：默认海外 lobster_server（与 Meta Webhook 同机）；?messenger_api= / localStorage 可覆盖 */
 (function setMessengerApiBase() {
   /** 使用 https:// 与 443，避免 https 前端页对 http:8000 的混合内容拦截；与 Nginx 反代一致 */
-  var def = 'https://lobster-server.icu';
+  var def = 'http://43.162.111.36';
   var p = new URLSearchParams(window.location.search);
   var m = (p.get('messenger_api') || '').trim() || (localStorage.getItem('lobster_messenger_api_base') || '').trim() || def;
-  if (m === 'http://lobster-server.icu:8000') {
+  if (m === 'http://43.162.111.36:8000') {
     m = def;
   }
   if (m) localStorage.setItem('lobster_messenger_api_base', m);
@@ -72,13 +72,13 @@ var MESSENGER_API_BASE = (typeof window.__MESSENGER_API_BASE !== 'undefined' ? w
   var p = new URLSearchParams(window.location.search);
   var q = (p.get('twilio_api') || '').trim();
   if (q) {
-    if (q === 'http://lobster-server.icu:8000') q = 'https://lobster-server.icu';
+    if (q === 'http://43.162.111.36:8000') q = 'http://43.162.111.36';
     try { localStorage.setItem('lobster_twilio_api_base', q); } catch (e) {}
     window.__TWILIO_API_BASE = q;
   } else {
     var v = (localStorage.getItem('lobster_twilio_api_base') || '').trim();
     // 旧版默认写死海外根地址会导致浏览器直连跨域 Failed to fetch；与企微一致改走后，清除该默认值
-    if (v === 'https://lobster-server.icu' || v === 'http://lobster-server.icu:8000') {
+    if (v === 'http://43.162.111.36' || v === 'http://43.162.111.36:8000' || v === 'https://lobster-server.icu' || v === 'http://lobster-server.icu:8000') {
       try { localStorage.removeItem('lobster_twilio_api_base'); } catch (e2) {}
       window.__TWILIO_API_BASE = '';
     } else {

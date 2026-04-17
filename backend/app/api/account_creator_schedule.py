@@ -7,7 +7,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -20,6 +20,7 @@ from ..models import (
     PublishAccount,
     PublishAccountCreatorSchedule,
 )
+from ..services.internal_chat_client import forward_chat_auth_from_request
 from ..services.schedule_review_snapshots import (
     append_review_snapshot,
     snapshot_to_list_item,
@@ -588,6 +589,7 @@ async def put_creator_schedule(
 
 @router.post("/api/accounts/{account_id}/creator-schedule/review-generate", summary="审核模式：智能生成多版提示词（将发给 AI 的 prompt，非素材）")
 async def post_review_generate(
+    request: Request,
     account_id: int,
     body: ReviewGenerateBody,
     current_user: _ServerUser = Depends(get_current_user_for_local),
@@ -609,6 +611,7 @@ async def post_review_generate(
         raise HTTPException(400, detail="请先将发布模式设为「审核后发布」")
     from ..services.schedule_review_draft_generate import generate_review_drafts_via_chat
 
+    ut, xi = forward_chat_auth_from_request(request)
     try:
         drafts = await generate_review_drafts_via_chat(
             user_id=current_user.id,
@@ -619,6 +622,8 @@ async def post_review_generate(
             variant_count=body.variant_count,
             replace_slot_hint=None,
             video_source_asset_id=getattr(row, "video_source_asset_id", None),
+            user_bearer_token=ut,
+            x_installation_id=xi or None,
         )
     except ValueError as e:
         err = str(e)
@@ -655,6 +660,7 @@ async def post_review_generate(
     summary="审核模式：按槽位已保存的 prompt 调用能力生成素材与回复（禁止发布）",
 )
 async def post_review_generate_assets(
+    request: Request,
     account_id: int,
     body: ReviewGenerateAssetsBody,
     current_user: _ServerUser = Depends(get_current_user_for_local),
@@ -695,6 +701,7 @@ async def post_review_generate_assets(
             raise HTTPException(400, detail=f"槽位序号 {i} 无效")
     sch_kind = (getattr(row, "schedule_kind", None) or "image").strip().lower()
     sch_video_asset = getattr(row, "video_source_asset_id", None)
+    ut, xi = forward_chat_auth_from_request(request)
     for i in target:
         slot = dict(new_drafts[i])
         if not (slot.get("prompt") or "").strip():
@@ -713,6 +720,8 @@ async def post_review_generate_assets(
                 attachment_asset_ids=slot.get("attachment_asset_ids"),
                 schedule_kind=sch_kind,
                 video_source_asset_id=sch_video_asset,
+                user_bearer_token=ut,
+                x_installation_id=xi or None,
             )
         except ValueError as e:
             err = str(e)
@@ -754,6 +763,7 @@ async def post_review_generate_assets(
     summary="审核模式：重新生成某一版草稿",
 )
 async def post_review_regenerate_slot(
+    request: Request,
     account_id: int,
     body: ReviewRegenerateSlotBody,
     current_user: _ServerUser = Depends(get_current_user_for_local),
@@ -779,6 +789,7 @@ async def post_review_regenerate_slot(
     from ..services.schedule_review_draft_generate import generate_review_drafts_via_chat
 
     hint = f"请只生成 1 条新草稿，用于替换列表中第 {body.slot_index + 1} 条；风格与用户需求一致，且与同批其他稿区分度适中。"
+    ut, xi = forward_chat_auth_from_request(request)
     try:
         one = await generate_review_drafts_via_chat(
             user_id=current_user.id,
@@ -789,6 +800,8 @@ async def post_review_regenerate_slot(
             variant_count=1,
             replace_slot_hint=hint,
             video_source_asset_id=getattr(row, "video_source_asset_id", None),
+            user_bearer_token=ut,
+            x_installation_id=xi or None,
         )
     except ValueError as e:
         err = str(e)

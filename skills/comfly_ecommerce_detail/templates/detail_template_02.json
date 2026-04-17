@@ -1,0 +1,47 @@
+{
+  "template_id": "detail_template_02",
+  "display_name": "Creamy Editorial Detail",
+  "common": {
+    "width": 790,
+    "default_height": 1280,
+    "min_height": 680,
+    "margin": 44,
+    "page_gap_px": 0
+  },
+  "colors": {
+    "accent": "#d97b39",
+    "dark": "#241a14",
+    "muted": "#736459",
+    "canvas": "#f7f0e8",
+    "card": "#fff8f1",
+    "cover_overlay": "rgba(24,16,12,0.36)"
+  },
+  "heights": {
+    "hero_cover": 1360,
+    "overview_summary": 1200,
+    "feature_focus": 1300,
+    "scene_usage": 1300,
+    "material_cleaning": 1260,
+    "trust_reassurance": 1080,
+    "closing_summary": 1040,
+    "spec_table": 900
+  },
+  "slot_aliases": {
+    "cover": "hero_cover",
+    "hero_cover": "hero_cover",
+    "overview": "overview_summary",
+    "feature": "feature_focus",
+    "scene": "scene_usage",
+    "material": "material_cleaning",
+    "trust": "trust_reassurance",
+    "closing": "closing_summary",
+    "spec_table": "spec_table"
+  },
+  "spec_table": {
+    "columns": 2,
+    "card_height": 172,
+    "card_radius": 30,
+    "card_gap_x": 18,
+    "card_gap_y": 18
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "style_id": "creamy_wood",
+  "display_name": "奶油原木风",
+  "aliases": ["奶油原木风", "creamy_wood"],
+  "visual_style": "creamy wood premium ecommerce home styling, solid oak and ash wood furniture, creamy beige panels, soft warm natural side light, hyperrealistic lifestyle product photography",
+  "palette": ["原木色", "奶白", "米杏", "复古蓝", "暖黄"],
+  "materials": ["白蜡木", "橡木", "自然木纹", "奶白哑光门板", "低饱和布艺"],
+  "lighting": {
+    "type": "bright_soft_natural",
+    "temperature": "warm",
+    "description": "明亮柔和的自然光为主，局部暖黄色灯具补光，阴影轻柔通透"
+  },
+  "scene_objects": ["模块化组合柜", "开放式咖啡角", "绿植", "复古灯具", "低饱和地毯", "生活化杯具摆件"],
+  "decorative_objects": ["圆形孔洞设计", "奶油白墙面", "原木地板", "暖黄灯具", "浅色窗帘"],
+  "negative_rules": ["禁止脏灰发闷", "禁止冰冷工业风", "禁止强烈硬阴影", "禁止高饱和撞色喧宾夺主", "禁止过度复杂背景"],
+  "prompt_keywords_en": ["creamy nordic japanese home style", "solid oak wood", "round hole design", "modular cabinet", "natural wood grain", "soft warm natural side light"],
+  "copy_tone": "表达要温暖、治愈、有生活感，突出人宠共居和松弛居家体验",
+  "scene_direction": "空间通透、柔和、有生活气，产品像真实摆进家里而不是摄影棚摆拍",
+  "showcase_theme": {
+    "background": "#f3efe9",
+    "card_white": "#fbf8f4",
+    "text": "#15110d",
+    "muted": "#60554a",
+    "accent": "#f46c22",
+    "chip_bg": "#6e4325",
+    "chip_text": "#fffaf4",
+    "soft_line": "#ece4da"
+  },
+  "sku_theme": {
+    "dark": "#6c4028",
+    "light": "#fffaf5",
+    "accent": "#f28727",
+    "text_dark": "#fff9f2",
+    "body_dark": "#4c321f"
+  }
+}

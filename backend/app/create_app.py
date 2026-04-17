@@ -30,10 +30,16 @@ except Exception as e:
         wecom_router = None
     else:
         raise
+try:
+    from .api.wecom_kf import router as wecom_kf_router
+except Exception:
+    wecom_kf_router = None
 from .api.assets import router as assets_router
 from .api.media_edit import router as media_edit_router
 from .api.comfly_veo import router as comfly_veo_router
 from .api.comfly_daihuo import router as comfly_daihuo_router
+from .api.comfly_ecommerce_detail import router as comfly_ecommerce_detail_router
+from .api.ecommerce_publish import router as ecommerce_publish_router
 from .api.publish import router as publish_router
 from .api.creator_content import router as creator_content_router
 from .api.account_creator_schedule import router as account_creator_schedule_router
@@ -153,6 +159,46 @@ def _ensure_comfly_daihuo_pipeline_capability():
         db.close()
 
 
+def _ensure_comfly_ecommerce_detail_pipeline_capability():
+    """Ensure comfly.ecommerce.detail_pipeline exists in CapabilityConfig."""
+    catalog_path = Path(__file__).resolve().parent.parent.parent / "mcp" / "capability_catalog.json"
+    if not catalog_path.exists():
+        return
+    try:
+        raw = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except Exception:
+        return
+    cfg = raw.get("comfly.ecommerce.detail_pipeline")
+    if not isinstance(cfg, dict):
+        return
+    db = SessionLocal()
+    try:
+        existing = db.query(models.CapabilityConfig).filter(
+            models.CapabilityConfig.capability_id == "comfly.ecommerce.detail_pipeline"
+        ).first()
+        if existing:
+            return
+        db.add(
+            models.CapabilityConfig(
+                capability_id="comfly.ecommerce.detail_pipeline",
+                description=str(cfg.get("description") or "comfly.ecommerce.detail_pipeline"),
+                upstream=str(cfg.get("upstream") or "local"),
+                upstream_tool=str(cfg.get("upstream_tool") or "invoke"),
+                arg_schema=cfg.get("arg_schema") if isinstance(cfg.get("arg_schema"), dict) else None,
+                enabled=bool(cfg.get("enabled", True)),
+                is_default=bool(cfg.get("is_default", False)),
+                unit_credits=int(cfg.get("unit_credits") or 0),
+            )
+        )
+        db.commit()
+        logger.info("Seeded capability comfly.ecommerce.detail_pipeline into CapabilityConfig")
+    except Exception:
+        db.rollback()
+        logger.exception("Failed to seed comfly.ecommerce.detail_pipeline capability")
+    finally:
+        db.close()
+
+
 def _ensure_media_edit_capability():
     """已有数据库时补注册 media.edit（空库首次启动由 _seed_capability_catalog 一次性写入）。"""
     catalog_path = Path(__file__).resolve().parent.parent.parent / "mcp" / "capability_catalog.json"
@@ -231,7 +277,7 @@ def _sync_missing_capabilities_from_catalog():
     """旧库已有 capability_configs 时 _seed 会跳过；OTA 带新 mcp/capability_catalog.json 后在此补插缺失行。
 
     否则 MCP 侧已有新品能力（如 comfly.veo.daihuo_pipeline），而本机 DB 无记录，
-    list_capabilities / 费用兜底 unit_credits 会与代码不一致，表现为「没有能力」「参考积分未知」等。
+    list_capabilities / 费用兜底 unit_credits 会与代码不一致，表现为「没有能力」「参考算力未知」等。
     """
     catalog_path = Path(__file__).resolve().parent.parent.parent / "mcp" / "capability_catalog.json"
     if not catalog_path.exists():
@@ -294,7 +340,7 @@ def _auto_start_openclaw():
 
 
 def _migrate_wecom_config_enterprise_product():
-    """Add enterprise_id, product_id to wecom_configs if missing."""
+    """Add enterprise_id, product_id, secret, agent_id to wecom_configs if missing."""
     from sqlalchemy import text
     try:
         with engine.connect() as conn:
@@ -305,6 +351,15 @@ def _migrate_wecom_config_enterprise_product():
                 conn.commit()
             if "product_id" not in cols:
                 conn.execute(text("ALTER TABLE wecom_configs ADD COLUMN product_id INTEGER"))
+                conn.commit()
+            if "secret" not in cols:
+                conn.execute(text("ALTER TABLE wecom_configs ADD COLUMN secret VARCHAR(255)"))
+                conn.commit()
+            if "agent_id" not in cols:
+                conn.execute(text("ALTER TABLE wecom_configs ADD COLUMN agent_id INTEGER"))
+                conn.commit()
+            if "contacts_secret" not in cols:
+                conn.execute(text("ALTER TABLE wecom_configs ADD COLUMN contacts_secret VARCHAR(255)"))
                 conn.commit()
     except Exception as e:
         logger.warning("Migration wecom_configs enterprise/product skipped: %s", e)
@@ -552,6 +607,13 @@ async def _lifespan(app: FastAPI):
             logger.info("[启动] 企微自动拉取回复已启动（每 2s）")
         except Exception as e:
             logger.warning("[启动] 企微自动拉取回复未启动: %s", e)
+    if wecom_kf_router is not None:
+        try:
+            from .api.wecom_kf import kf_poll_loop
+            asyncio.create_task(kf_poll_loop())
+            logger.info("[启动] 微信客服自动拉取回复已启动（每 3s）")
+        except Exception as e:
+            logger.warning("[启动] 微信客服自动拉取回复未启动: %s", e)
     try:
         from .api.twilio_whatsapp import twilio_whatsapp_poll_loop
 
@@ -573,6 +635,22 @@ async def _lifespan(app: FastAPI):
         logger.info("[启动] YouTube 定时上传已启动（按间隔分钟 + 素材队列）")
     except Exception as e:
         logger.warning("[启动] YouTube 定时上传未启动: %s", e)
+    if wecom_router is not None:
+        try:
+            from .api.wecom import _execute_scheduled_messages
+
+            async def _wecom_scheduled_loop():
+                while True:
+                    try:
+                        await _execute_scheduled_messages()
+                    except Exception as e:
+                        logger.warning("[WECOM] 定时消息执行异常: %s", e)
+                    await asyncio.sleep(60)
+
+            asyncio.create_task(_wecom_scheduled_loop())
+            logger.info("[启动] 企微定时消息已启动（每 60s 检查）")
+        except Exception as e:
+            logger.warning("[启动] 企微定时消息未启动: %s", e)
     yield
 
 
@@ -595,6 +673,7 @@ def create_app() -> FastAPI:
     _ensure_media_edit_capability()
     _ensure_comfly_veo_capability()
     _ensure_comfly_daihuo_pipeline_capability()
+    _ensure_comfly_ecommerce_detail_pipeline_capability()
     _auto_start_openclaw()
 
     app = FastAPI(
@@ -640,6 +719,8 @@ def create_app() -> FastAPI:
     app.include_router(media_edit_router, prefix="")
     app.include_router(comfly_veo_router, prefix="")
     app.include_router(comfly_daihuo_router, prefix="")
+    app.include_router(comfly_ecommerce_detail_router, prefix="")
+    app.include_router(ecommerce_publish_router, prefix="")
     app.include_router(publish_router, prefix="")
     app.include_router(creator_content_router, prefix="")
     app.include_router(account_creator_schedule_router, prefix="")
@@ -652,6 +733,8 @@ def create_app() -> FastAPI:
         app.include_router(wecom_router, prefix="")
     else:
         logger.warning("企业微信回复未加载：缺少 pycryptodome，请执行 pip install pycryptodome 后重启")
+    if wecom_kf_router is not None:
+        app.include_router(wecom_kf_router, prefix="")
 
     assets_dir = Path(__file__).resolve().parent.parent.parent / "assets"
     assets_dir.mkdir(exist_ok=True)

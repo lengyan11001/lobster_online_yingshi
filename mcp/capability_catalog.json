@@ -8,12 +8,26 @@
     "arg_schema": {
       "type": "object",
       "properties": {
-        "prompt": { "type": "string", "description": "生成提示词" },
-        "model": { "type": "string", "description": "可选，如 fal-ai/flux-2/flash, jimeng-4.5" },
-        "image_url": { "type": "string", "description": "图生图时传入图片 URL" },
-        "image_size": { "type": "string", "description": "可选，如 square_hd, landscape_16_9" }
+        "prompt": {
+          "type": "string",
+          "description": "生成提示词"
+        },
+        "model": {
+          "type": "string",
+          "description": "可选，如 fal-ai/flux-2/flash, jimeng-4.5"
+        },
+        "image_url": {
+          "type": "string",
+          "description": "图生图时传入图片 URL"
+        },
+        "image_size": {
+          "type": "string",
+          "description": "可选，如 square_hd, landscape_16_9"
+        }
       },
-      "required": ["prompt"]
+      "required": [
+        "prompt"
+      ]
     }
   },
   "video.generate": {
@@ -25,13 +39,31 @@
     "arg_schema": {
       "type": "object",
       "properties": {
-        "model": { "type": "string", "description": "必填。指定使用的视频模型，如 st-ai/super-seed2(Seedance 2 文/图生), wan/v2.6/image-to-video(图生), fal-ai/kling-video/o3/pro/image-to-video。用户说「用 Seedance」「用 wan」等即指定此字段。" },
-        "prompt": { "type": "string", "description": "描述/动作提示词" },
-        "image_url": { "type": "string", "description": "图生视频时必传，公开可访问的图片 URL；本地图可用 sutui.transfer_url 先转存" },
-        "aspect_ratio": { "type": "string", "description": "可选，宽高比 16:9 或 9:16" },
-        "duration": { "type": "integer", "description": "可选，视频时长秒数，如 5 或 10" }
+        "model": {
+          "type": "string",
+          "description": "必填。指定使用的视频模型，如 st-ai/super-seed2(Seedance 2 文/图生), wan/v2.6/image-to-video(图生), fal-ai/kling-video/o3/pro/image-to-video。用户说「用 Seedance」「用 wan」等即指定此字段。"
+        },
+        "prompt": {
+          "type": "string",
+          "description": "描述/动作提示词"
+        },
+        "image_url": {
+          "type": "string",
+          "description": "图生视频时必传，公开可访问的图片 URL；本地图可用 sutui.transfer_url 先转存"
+        },
+        "aspect_ratio": {
+          "type": "string",
+          "description": "可选，宽高比 16:9 或 9:16"
+        },
+        "duration": {
+          "type": "integer",
+          "description": "可选，视频时长秒数，如 5 或 10"
+        }
       },
-      "required": ["model", "prompt"]
+      "required": [
+        "model",
+        "prompt"
+      ]
     }
   },
   "task.get_result": {
@@ -43,9 +75,14 @@
     "arg_schema": {
       "type": "object",
       "properties": {
-        "task_id": { "type": "string", "description": "速推任务 ID；JSON 中字段名必须为 task_id，勿用 taskid" }
+        "task_id": {
+          "type": "string",
+          "description": "速推任务 ID；JSON 中字段名必须为 task_id，勿用 taskid"
+        }
       },
-      "required": ["task_id"]
+      "required": [
+        "task_id"
+      ]
     }
   },
   "image.understand": {
@@ -57,12 +94,26 @@
     "arg_schema": {
       "type": "object",
       "properties": {
-        "prompt": { "type": "string", "description": "提问/指令，如「详细描述这张图片」「图中有什么文字」" },
-        "image_url": { "type": "string", "description": "单张图片 URL（会自动转为 image_urls 数组）" },
-        "image_urls": { "type": "array", "description": "图片 URL 数组（最多 10 张）" },
-        "model": { "type": "string", "description": "底层 LLM，默认 google/gemini-3-pro-preview" }
+        "prompt": {
+          "type": "string",
+          "description": "提问/指令，如「详细描述这张图片」「图中有什么文字」"
+        },
+        "image_url": {
+          "type": "string",
+          "description": "单张图片 URL（会自动转为 image_urls 数组）"
+        },
+        "image_urls": {
+          "type": "array",
+          "description": "图片 URL 数组（最多 10 张）"
+        },
+        "model": {
+          "type": "string",
+          "description": "底层 LLM，默认 google/gemini-3-pro-preview"
+        }
       },
-      "required": ["prompt"]
+      "required": [
+        "prompt"
+      ]
     }
   },
   "video.understand": {
@@ -74,12 +125,26 @@
     "arg_schema": {
       "type": "object",
       "properties": {
-        "prompt": { "type": "string", "description": "提问/指令，如「这个视频讲了什么」「总结视频内容」" },
-        "video_url": { "type": "string", "description": "单个视频 URL（会自动转为 video_urls 数组）" },
-        "video_urls": { "type": "array", "description": "视频 URL 数组（最多 5 个，支持 mp4/mov/webm）" },
-        "model": { "type": "string", "description": "底层 LLM，默认 google/gemini-3-pro-preview" }
+        "prompt": {
+          "type": "string",
+          "description": "提问/指令，如「这个视频讲了什么」「总结视频内容」"
+        },
+        "video_url": {
+          "type": "string",
+          "description": "单个视频 URL（会自动转为 video_urls 数组）"
+        },
+        "video_urls": {
+          "type": "array",
+          "description": "视频 URL 数组（最多 5 个，支持 mp4/mov/webm）"
+        },
+        "model": {
+          "type": "string",
+          "description": "底层 LLM，默认 google/gemini-3-pro-preview"
+        }
       },
-      "required": ["prompt"]
+      "required": [
+        "prompt"
+      ]
     }
   },
   "sutui.search_models": {
@@ -91,10 +156,36 @@
     "arg_schema": {
       "type": "object",
       "properties": {
-        "query": { "type": "string", "description": "自由文本搜索" },
-        "category": { "type": "string", "enum": ["image", "video", "audio", "all"] },
-        "capability": { "type": "string", "enum": ["t2i", "i2i", "t2v", "i2v", "v2v", "t2a", "stt", "i2t", "v2t"] },
-        "model_id": { "type": "string" }
+        "query": {
+          "type": "string",
+          "description": "自由文本搜索"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "image",
+            "video",
+            "audio",
+            "all"
+          ]
+        },
+        "capability": {
+          "type": "string",
+          "enum": [
+            "t2i",
+            "i2i",
+            "t2v",
+            "i2v",
+            "v2v",
+            "t2a",
+            "stt",
+            "i2t",
+            "v2t"
+          ]
+        },
+        "model_id": {
+          "type": "string"
+        }
       }
     }
   },
@@ -107,9 +198,21 @@
     "arg_schema": {
       "type": "object",
       "properties": {
-        "query": { "type": "string" },
-        "skill_id": { "type": "string" },
-        "category": { "type": "string", "enum": ["image", "video", "audio", "tool"] }
+        "query": {
+          "type": "string"
+        },
+        "skill_id": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "image",
+            "video",
+            "audio",
+            "tool"
+          ]
+        }
       }
     }
   },
@@ -122,8 +225,19 @@
     "arg_schema": {
       "type": "object",
       "properties": {
-        "action": { "type": "string", "enum": ["balance", "checkin", "packages", "pay"], "default": "balance" },
-        "package_id": { "type": "integer" }
+        "action": {
+          "type": "string",
+          "enum": [
+            "balance",
+            "checkin",
+            "packages",
+            "pay"
+          ],
+          "default": "balance"
+        },
+        "package_id": {
+          "type": "integer"
+        }
       }
     }
   },
@@ -135,8 +249,14 @@
     "is_default": false,
     "arg_schema": {
       "type": "object",
-      "properties": { "url": { "type": "string" } },
-      "required": ["url"]
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ]
     }
   },
   "sutui.transfer_url": {
@@ -154,12 +274,17 @@
         },
         "type": {
           "type": "string",
-          "enum": ["image", "audio"],
+          "enum": [
+            "image",
+            "audio"
+          ],
           "default": "image",
           "description": "速推仅支持 image 与 audio。转存视频时请填 image；仅音频填 audio。"
         }
       },
-      "required": ["url"]
+      "required": [
+        "url"
+      ]
     }
   },
   "sutui.speak": {
@@ -171,15 +296,48 @@
     "arg_schema": {
       "type": "object",
       "properties": {
-        "action": { "type": "string", "enum": ["synthesize", "list_voices", "design_voice", "clone_voice"], "default": "synthesize" },
-        "text": { "type": "string" },
-        "voice_id": { "type": "string" },
-        "prompt": { "type": "string" },
-        "audio_url": { "type": "string" },
-        "file_id": { "type": "integer" },
-        "voice_name": { "type": "string" },
-        "model": { "type": "string", "enum": ["speech-2.8-hd", "speech-2.8-turbo", "speech-2.6-hd", "speech-2.6-turbo"], "default": "speech-2.8-hd" },
-        "speed": { "type": "number", "default": 1 }
+        "action": {
+          "type": "string",
+          "enum": [
+            "synthesize",
+            "list_voices",
+            "design_voice",
+            "clone_voice"
+          ],
+          "default": "synthesize"
+        },
+        "text": {
+          "type": "string"
+        },
+        "voice_id": {
+          "type": "string"
+        },
+        "prompt": {
+          "type": "string"
+        },
+        "audio_url": {
+          "type": "string"
+        },
+        "file_id": {
+          "type": "integer"
+        },
+        "voice_name": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string",
+          "enum": [
+            "speech-2.8-hd",
+            "speech-2.8-turbo",
+            "speech-2.6-hd",
+            "speech-2.6-turbo"
+          ],
+          "default": "speech-2.8-hd"
+        },
+        "speed": {
+          "type": "number",
+          "default": 1
+        }
       }
     }
   },
@@ -195,46 +353,193 @@
       "properties": {
         "operation": {
           "type": "string",
-          "enum": ["overlay_text", "trim", "scale_pad", "mute", "mux_audio", "image_to_video", "extract_frame"],
+          "enum": [
+            "overlay_text",
+            "trim",
+            "scale_pad",
+            "mute",
+            "mux_audio",
+            "image_to_video",
+            "extract_frame"
+          ],
           "description": "操作类型"
         },
-        "asset_id": { "type": "string", "description": "主素材 ID" },
-        "text": { "type": "string", "description": "overlay_text 文案（必填）" },
-        "position": { "type": "string", "enum": ["top", "center", "bottom"], "description": "overlay_text 垂直位置（与 vertical_align 二选一，后者优先）" },
-        "vertical_align": { "type": "string", "enum": ["top", "center", "bottom"], "description": "overlay_text 垂直对齐，默认 top" },
-        "horizontal_align": { "type": "string", "enum": ["left", "center", "right"], "description": "overlay_text 水平对齐，默认 center" },
-        "margin_x": { "type": "integer", "description": "overlay_text 左右边距（left/right 时有效）或水平基准，默认 40，范围 0–4000" },
-        "margin_y": { "type": "integer", "description": "overlay_text 上下边距，默认 40，范围 0–4000" },
-        "offset_x": { "type": "integer", "description": "overlay_text 在计算位置基础上额外偏移 X，默认 0，范围 -4000–4000" },
-        "offset_y": { "type": "integer", "description": "overlay_text 在计算位置基础上额外偏移 Y，默认 0，范围 -4000–4000" },
-        "font_size": { "type": "integer", "description": "overlay_text 字号，默认 48，范围 8–200" },
-        "font_color": { "type": "string", "description": "overlay_text 字色：命名色或 #RRGGBB / 0xRRGGBB / 0xRRGGBBAA（含透明度时不要再用 font_alpha）" },
-        "font_alpha": { "type": "number", "description": "overlay_text 字透明度 0–1，与 6 位色或命名色联用" },
-        "font_file": { "type": "string", "description": "overlay_text 字体绝对路径 .ttf/.ttc/.otf；中文未指定时仍自动选 CJK 字体" },
-        "x_expr": { "type": "string", "description": "overlay_text 自定义 ffmpeg x 表达式（须与 y_expr 同时出现，覆盖对齐/边距）" },
-        "y_expr": { "type": "string", "description": "overlay_text 自定义 ffmpeg y 表达式" },
-        "box": { "type": "boolean", "description": "overlay_text 是否绘制文字背景框" },
-        "box_color": { "type": "string", "description": "overlay_text 背景色；0xRRGGBBAA 时不要同时传 box_alpha" },
-        "box_alpha": { "type": "number", "description": "overlay_text 背景透明度 0–1，默认 0.5（非 8 位 hex 色时）" },
-        "box_border_width": { "type": "integer", "description": "overlay_text 背景框边宽 0–80" },
-        "border_width": { "type": "integer", "description": "overlay_text 文字描边宽度 0–40" },
-        "border_color": { "type": "string", "description": "overlay_text 描边颜色" },
-        "shadow_x": { "type": "integer", "description": "overlay_text 阴影 X 偏移 -120–120，与 shadow_y 均为 0 时不画阴影" },
-        "shadow_y": { "type": "integer", "description": "overlay_text 阴影 Y 偏移 -120–120" },
-        "shadow_color": { "type": "string", "description": "overlay_text 阴影颜色" },
-        "shadow_alpha": { "type": "number", "description": "overlay_text 阴影透明度 0–1，默认 0.45" },
-        "line_spacing": { "type": "integer", "description": "overlay_text 多行行距 -200–200" },
-        "text_align": { "type": "string", "enum": ["left", "center", "right"], "description": "overlay_text 多行水平对齐" },
-        "fix_bounds": { "type": "boolean", "description": "overlay_text 是否将文字限制在画面内（ffmpeg fix_bounds）" },
-        "start_sec": { "type": "number", "description": "trim 起始秒" },
-        "end_sec": { "type": "number", "description": "trim 结束秒（须大于 start）" },
-        "aspect_ratio": { "type": "string", "enum": ["9:16", "16:9", "1:1", "4:3", "3:4"], "description": "scale_pad 目标比例" },
-        "fit_mode": { "type": "string", "enum": ["contain", "cover"], "description": "scale_pad：留边或裁切" },
-        "audio_asset_id": { "type": "string", "description": "mux_audio 音频素材 ID" },
-        "duration_sec": { "type": "number", "description": "image_to_video 时长（秒），最大 600" },
-        "timestamp_sec": { "type": "number", "description": "extract_frame 截取时刻（秒）" }
+        "asset_id": {
+          "type": "string",
+          "description": "主素材 ID"
+        },
+        "text": {
+          "type": "string",
+          "description": "overlay_text 文案（必填）"
+        },
+        "position": {
+          "type": "string",
+          "enum": [
+            "top",
+            "center",
+            "bottom"
+          ],
+          "description": "overlay_text 垂直位置（与 vertical_align 二选一，后者优先）"
+        },
+        "vertical_align": {
+          "type": "string",
+          "enum": [
+            "top",
+            "center",
+            "bottom"
+          ],
+          "description": "overlay_text 垂直对齐，默认 top"
+        },
+        "horizontal_align": {
+          "type": "string",
+          "enum": [
+            "left",
+            "center",
+            "right"
+          ],
+          "description": "overlay_text 水平对齐，默认 center"
+        },
+        "margin_x": {
+          "type": "integer",
+          "description": "overlay_text 左右边距（left/right 时有效）或水平基准，默认 40，范围 0–4000"
+        },
+        "margin_y": {
+          "type": "integer",
+          "description": "overlay_text 上下边距，默认 40，范围 0–4000"
+        },
+        "offset_x": {
+          "type": "integer",
+          "description": "overlay_text 在计算位置基础上额外偏移 X，默认 0，范围 -4000–4000"
+        },
+        "offset_y": {
+          "type": "integer",
+          "description": "overlay_text 在计算位置基础上额外偏移 Y，默认 0，范围 -4000–4000"
+        },
+        "font_size": {
+          "type": "integer",
+          "description": "overlay_text 字号，默认 48，范围 8–200"
+        },
+        "font_color": {
+          "type": "string",
+          "description": "overlay_text 字色：命名色或 #RRGGBB / 0xRRGGBB / 0xRRGGBBAA（含透明度时不要再用 font_alpha）"
+        },
+        "font_alpha": {
+          "type": "number",
+          "description": "overlay_text 字透明度 0–1，与 6 位色或命名色联用"
+        },
+        "font_file": {
+          "type": "string",
+          "description": "overlay_text 字体绝对路径 .ttf/.ttc/.otf；中文未指定时仍自动选 CJK 字体"
+        },
+        "x_expr": {
+          "type": "string",
+          "description": "overlay_text 自定义 ffmpeg x 表达式（须与 y_expr 同时出现，覆盖对齐/边距）"
+        },
+        "y_expr": {
+          "type": "string",
+          "description": "overlay_text 自定义 ffmpeg y 表达式"
+        },
+        "box": {
+          "type": "boolean",
+          "description": "overlay_text 是否绘制文字背景框"
+        },
+        "box_color": {
+          "type": "string",
+          "description": "overlay_text 背景色；0xRRGGBBAA 时不要同时传 box_alpha"
+        },
+        "box_alpha": {
+          "type": "number",
+          "description": "overlay_text 背景透明度 0–1，默认 0.5（非 8 位 hex 色时）"
+        },
+        "box_border_width": {
+          "type": "integer",
+          "description": "overlay_text 背景框边宽 0–80"
+        },
+        "border_width": {
+          "type": "integer",
+          "description": "overlay_text 文字描边宽度 0–40"
+        },
+        "border_color": {
+          "type": "string",
+          "description": "overlay_text 描边颜色"
+        },
+        "shadow_x": {
+          "type": "integer",
+          "description": "overlay_text 阴影 X 偏移 -120–120，与 shadow_y 均为 0 时不画阴影"
+        },
+        "shadow_y": {
+          "type": "integer",
+          "description": "overlay_text 阴影 Y 偏移 -120–120"
+        },
+        "shadow_color": {
+          "type": "string",
+          "description": "overlay_text 阴影颜色"
+        },
+        "shadow_alpha": {
+          "type": "number",
+          "description": "overlay_text 阴影透明度 0–1，默认 0.45"
+        },
+        "line_spacing": {
+          "type": "integer",
+          "description": "overlay_text 多行行距 -200–200"
+        },
+        "text_align": {
+          "type": "string",
+          "enum": [
+            "left",
+            "center",
+            "right"
+          ],
+          "description": "overlay_text 多行水平对齐"
+        },
+        "fix_bounds": {
+          "type": "boolean",
+          "description": "overlay_text 是否将文字限制在画面内（ffmpeg fix_bounds）"
+        },
+        "start_sec": {
+          "type": "number",
+          "description": "trim 起始秒"
+        },
+        "end_sec": {
+          "type": "number",
+          "description": "trim 结束秒（须大于 start）"
+        },
+        "aspect_ratio": {
+          "type": "string",
+          "enum": [
+            "9:16",
+            "16:9",
+            "1:1",
+            "4:3",
+            "3:4"
+          ],
+          "description": "scale_pad 目标比例"
+        },
+        "fit_mode": {
+          "type": "string",
+          "enum": [
+            "contain",
+            "cover"
+          ],
+          "description": "scale_pad：留边或裁切"
+        },
+        "audio_asset_id": {
+          "type": "string",
+          "description": "mux_audio 音频素材 ID"
+        },
+        "duration_sec": {
+          "type": "number",
+          "description": "image_to_video 时长（秒），最大 600"
+        },
+        "timestamp_sec": {
+          "type": "number",
+          "description": "extract_frame 截取时刻（秒）"
+        }
       },
-      "required": ["operation", "asset_id"]
+      "required": [
+        "operation",
+        "asset_id"
+      ]
     }
   },
   "comfly.veo": {
@@ -249,21 +554,63 @@
       "properties": {
         "action": {
           "type": "string",
-          "enum": ["upload", "generate_prompts", "submit_video", "poll_video"],
+          "enum": [
+            "upload",
+            "generate_prompts",
+            "submit_video",
+            "poll_video"
+          ],
           "description": "upload: asset_id→image_url；generate_prompts；submit_video；poll_video"
         },
-        "asset_id": { "type": "string", "description": "upload 必填" },
-        "image_url": { "type": "string", "description": "submit_video：单图 URL；与 images[] 二选一或同传" },
-        "images": { "type": "array", "items": { "type": "string" }, "description": "submit_video：Comfly 官方 images（1–3 张视 model），url 或 base64" },
-        "prompt": { "type": "string", "description": "submit_video：英文提示词；与 prompts[] 二选一" },
-        "prompts": { "type": "array", "items": { "type": "string" }, "description": "submit_video：可传 generate_prompts 返回的数组，后端取首条作为 prompt" },
-        "enhance_prompt": { "type": "boolean", "description": "submit_video：true 时开启中文转英文等优化（Comfly enhance_prompt）" },
-        "task_id": { "type": "string", "description": "poll_video：submit_video 返回的完整 task_id（如 video_…），后端请求 Comfly 查询接口" },
-        "video_model": { "type": "string", "description": "Comfly Veo 模型名，如 veo3.1、veo3-pro-frames，勿填速推 st-ai/ 等" },
-        "analysis_model": { "type": "string" },
-        "aspect_ratio": { "type": "string", "description": "submit_video：9:16 或 16:9；不传则由上游按参考图推断" }
+        "asset_id": {
+          "type": "string",
+          "description": "upload 必填"
+        },
+        "image_url": {
+          "type": "string",
+          "description": "submit_video：单图 URL；与 images[] 二选一或同传"
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "submit_video：Comfly 官方 images（1–3 张视 model），url 或 base64"
+        },
+        "prompt": {
+          "type": "string",
+          "description": "submit_video：英文提示词；与 prompts[] 二选一"
+        },
+        "prompts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "submit_video：可传 generate_prompts 返回的数组，后端取首条作为 prompt"
+        },
+        "enhance_prompt": {
+          "type": "boolean",
+          "description": "submit_video：true 时开启中文转英文等优化（Comfly enhance_prompt）"
+        },
+        "task_id": {
+          "type": "string",
+          "description": "poll_video：submit_video 返回的完整 task_id（如 video_…），后端请求 Comfly 查询接口"
+        },
+        "video_model": {
+          "type": "string",
+          "description": "Comfly Veo 模型名，如 veo3.1、veo3-pro-frames，勿填速推 st-ai/ 等"
+        },
+        "analysis_model": {
+          "type": "string"
+        },
+        "aspect_ratio": {
+          "type": "string",
+          "description": "submit_video：9:16 或 16:9；不传则由上游按参考图推断"
+        }
       },
-      "required": ["action"]
+      "required": [
+        "action"
+      ]
     }
   },
   "comfly.veo.daihuo_pipeline": {
@@ -278,20 +625,176 @@
       "properties": {
         "action": {
           "type": "string",
-          "enum": ["run_pipeline", "start_pipeline", "poll_pipeline"],
+          "enum": [
+            "run_pipeline",
+            "start_pipeline",
+            "poll_pipeline"
+          ],
           "description": "run_pipeline：一次跑完（默认）；start_pipeline：后台任务 + 可轮询；poll_pipeline：查 job 状态"
         },
-        "job_id": { "type": "string", "description": "poll_pipeline 必填；32 位 hex" },
-        "asset_id": { "type": "string", "description": "run/start 时：素材库商品图 ID（与 image_url 二选一）" },
-        "image_url": { "type": "string", "description": "run/start 时：公网商品图 URL（与 asset_id 二选一）" },
-        "merge_clips": { "type": "boolean", "description": "是否拼接多段，默认 true" },
-        "storyboard_count": { "type": "integer", "description": "分镜条数 1–8，默认脚本内 5" },
-        "auto_save": { "type": "boolean", "description": "完成后是否将每段成功 mp4 入库，默认 true" },
-        "isolate_job_dir": { "type": "boolean", "description": "start 时默认 true：输出隔离到 job_runs/<job_id>/ 便于 manifest 进度" },
-        "platform": { "type": "string" },
-        "country": { "type": "string" },
-        "language": { "type": "string" },
-        "output_dir": { "type": "string", "description": "可选，流水线 runs 根目录" }
+        "job_id": {
+          "type": "string",
+          "description": "poll_pipeline 必填；32 位 hex"
+        },
+        "asset_id": {
+          "type": "string",
+          "description": "run/start 时：素材库商品图 ID（与 image_url 二选一）"
+        },
+        "image_url": {
+          "type": "string",
+          "description": "run/start 时：公网商品图 URL（与 asset_id 二选一）"
+        },
+        "merge_clips": {
+          "type": "boolean",
+          "description": "是否拼接多段，默认 true"
+        },
+        "storyboard_count": {
+          "type": "integer",
+          "description": "分镜条数 1–8，默认脚本内 5"
+        },
+        "auto_save": {
+          "type": "boolean",
+          "description": "完成后是否将每段成功 mp4 入库，默认 true"
+        },
+        "isolate_job_dir": {
+          "type": "boolean",
+          "description": "start 时默认 true：输出隔离到 job_runs/<job_id>/ 便于 manifest 进度"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "country": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "output_dir": {
+          "type": "string",
+          "description": "可选，流水线 runs 根目录"
+        }
+      }
+    }
+  },
+  "comfly.ecommerce.detail_pipeline": {
+    "description": "电商详情页生成流水线：商品主图自动分析卖点、生成多张竖版详情页、拼接长图、素材入库。action 可选 run_pipeline（同步）、start_pipeline（异步）、poll_pipeline（轮询）。",
+    "upstream": "local",
+    "upstream_tool": "invoke",
+    "enabled": true,
+    "is_default": false,
+    "unit_credits": 0,
+    "arg_schema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "run_pipeline",
+            "start_pipeline",
+            "poll_pipeline"
+          ]
+        },
+        "job_id": {
+          "type": "string"
+        },
+        "asset_id": {
+          "type": "string",
+          "description": "?????? ID?? image_url ???"
+        },
+        "image_url": {
+          "type": "string",
+          "description": "?????? URL?? asset_id ???"
+        },
+        "product_name_hint": {
+          "type": "string",
+          "description": "用户指定的商品名/商品标题；传入后优先按该商品身份生成"
+        },
+        "product_direction_hint": {
+          "type": "string",
+          "description": "用户指定的商品方向/类目，如男装、女装、猫舍、猫砂柜"
+        },
+        "reference_asset_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reference_image_urls": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "page_count": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 16
+        },
+        "auto_save": {
+          "type": "boolean"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "country": {
+          "type": "string"
+        },
+        "language": {
+          "type": "string"
+        },
+        "analysis_model": {
+          "type": "string"
+        },
+        "image_model": {
+          "type": "string"
+        },
+        "output_dir": {
+          "type": "string"
+        },
+        "isolate_job_dir": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "ecommerce.publish": {
+    "description": "电商商品发布：打开对应平台（抖店/小红书千帆/1688/淘宝/拼多多）的商品创建页面，自动填写商品信息但不提交。action: open_product_form(打开发布页), list_shop_accounts(列出店铺账号)。",
+    "upstream": "local",
+    "upstream_tool": "invoke",
+    "enabled": true,
+    "is_default": false,
+    "unit_credits": 0,
+    "arg_schema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["open_product_form", "list_shop_accounts"]
+        },
+        "platform": {
+          "type": "string",
+          "enum": ["douyin_shop", "xiaohongshu_shop", "alibaba1688", "taobao", "pinduoduo"]
+        },
+        "account_nickname": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "main_image_asset_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "detail_image_asset_ids": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "price": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        }
       }
     }
   }

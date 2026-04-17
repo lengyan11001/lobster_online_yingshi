@@ -1,0 +1,47 @@
+{
+  "template_id": "detail_template_01",
+  "display_name": "Warm Pet Furniture Detail",
+  "common": {
+    "width": 790,
+    "default_height": 1250,
+    "min_height": 640,
+    "margin": 40,
+    "page_gap_px": 0
+  },
+  "colors": {
+    "accent": "#ff6a1a",
+    "dark": "#1d1713",
+    "muted": "#5b5349",
+    "canvas": "#faf8f5",
+    "card": "#f4f4f2",
+    "cover_overlay": "rgba(14,10,8,0.42)"
+  },
+  "heights": {
+    "hero_cover": 1315,
+    "overview_summary": 1180,
+    "feature_focus": 1270,
+    "scene_usage": 1270,
+    "material_cleaning": 1220,
+    "trust_reassurance": 1020,
+    "closing_summary": 1000,
+    "spec_table": 820
+  },
+  "slot_aliases": {
+    "cover": "hero_cover",
+    "hero_cover": "hero_cover",
+    "overview": "overview_summary",
+    "feature": "feature_focus",
+    "scene": "scene_usage",
+    "material": "material_cleaning",
+    "trust": "trust_reassurance",
+    "closing": "closing_summary",
+    "spec_table": "spec_table"
+  },
+  "spec_table": {
+    "columns": 2,
+    "card_height": 160,
+    "card_radius": 28,
+    "card_gap_x": 18,
+    "card_gap_y": 18
+  }
+}

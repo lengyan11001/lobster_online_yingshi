@@ -1,0 +1,9 @@
+{
+  "template_id": "showcase_template_01",
+  "display_name": "Balanced Selling Point Cards",
+  "count_source": "selling_points",
+  "min_count": 4,
+  "max_count": 6,
+  "variant_sequence": [1, 3, 0, 2],
+  "theme": {}
+}

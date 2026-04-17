@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>必火openclaw</title>
+  <title>必火AI员工</title>
   <link rel="icon" id="brandFavicon" type="image/png" sizes="32x32" href="/static/bihu_32.png">
   <link rel="apple-touch-icon" id="brandAppleTouch" href="/static/bihu_128.png">
   <link rel="stylesheet" href="/static/css/common.css">
@@ -57,14 +57,257 @@
     .section-title { font-size: 1rem; font-weight: 600; margin-bottom: 0.75rem; }
     /* .add-mcp-form moved to modal */
     .store-tabs { display: flex; gap: 0; border-bottom: 1px solid rgba(255,255,255,0.1); }
-    .store-tab, .pub-tab, .sys-tab { background: none; border: none; padding: 0.6rem 1.25rem; font-size: 0.9rem; font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
-    .store-tab:hover, .pub-tab:hover, .sys-tab:hover { color: var(--text); }
-    .store-tab.active, .pub-tab.active, .sys-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .store-tab, .pub-tab, .sys-tab, .wecom-detail-tab { background: none; border: none; padding: 0.6rem 1.25rem; font-size: 0.9rem; font-weight: 500; color: var(--text-muted); cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.15s; }
+    .store-tab:hover, .pub-tab:hover, .sys-tab:hover, .wecom-detail-tab:hover { color: var(--text); }
+    .store-tab.active, .pub-tab.active, .sys-tab.active, .wecom-detail-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
     .category-chip { display: inline-block; padding: 0.25rem 0.65rem; font-size: 0.78rem; border-radius: 12px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: var(--text-muted); cursor: pointer; transition: all 0.15s; }
     .category-chip:hover { background: rgba(6,182,212,0.12); border-color: var(--accent); color: var(--accent); }
     .category-chip.active { background: rgba(6,182,212,0.18); border-color: var(--accent); color: var(--accent); font-weight: 500; }
     .category-chip .chip-count { font-size: 0.7rem; opacity: 0.7; margin-left: 0.2rem; }
     .paging-info { font-size: 0.82rem; color: var(--text-muted); }
+    .ecom-studio { display: flex; flex-direction: column; gap: 1rem; }
+    .ecom-studio-hero {
+      display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start;
+      padding: 1.25rem; border: 1px solid rgba(255,255,255,0.08); border-radius: var(--radius);
+      background:
+        radial-gradient(circle at top left, rgba(245,158,11,0.14), transparent 34%),
+        radial-gradient(circle at top right, rgba(6,182,212,0.12), transparent 32%),
+        linear-gradient(135deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+    }
+    .ecom-studio-hero-copy h3 { margin: 0 0 0.45rem 0; font-size: 1.15rem; }
+    .ecom-studio-hero-copy p { margin: 0; max-width: 720px; font-size: 0.84rem; color: var(--text-muted); line-height: 1.65; }
+    .ecom-studio-badges { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.8rem; }
+    .ecom-studio-badge { padding: 0.25rem 0.6rem; font-size: 0.75rem; border-radius: 999px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05); color: var(--text-muted); }
+    .ecom-studio-shell { display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 1rem; min-height: 720px; }
+    .ecom-studio-sidebar { display: flex; flex-direction: column; gap: 0.85rem; min-width: 0; }
+    .ecom-studio-main { min-width: 0; display: flex; flex-direction: column; gap: 0.85rem; }
+    .ecom-panel { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; }
+    .ecom-panel-title { margin: 0 0 0.75rem 0; font-size: 0.95rem; font-weight: 600; color: var(--text); }
+    .ecom-panel-hint { margin: -0.35rem 0 0.75rem 0; font-size: 0.76rem; color: var(--text-muted); line-height: 1.55; }
+    .ecom-field { margin-bottom: 0.75rem; }
+    .ecom-field:last-child { margin-bottom: 0; }
+    .ecom-field label { display: block; font-size: 0.82rem; font-weight: 500; color: var(--text); margin-bottom: 0.35rem; }
+    .ecom-field input[type="text"], .ecom-field input[type="number"], .ecom-field textarea, .ecom-field select {
+      width: 100%; padding: 0.55rem 0.65rem; font-size: 0.86rem; color: var(--text);
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.12); border-radius: var(--radius-sm); outline: none; box-sizing: border-box;
+    }
+    .ecom-field textarea { min-height: 84px; resize: vertical; line-height: 1.5; }
+    .ecom-field .hint { margin-top: 0.25rem; font-size: 0.74rem; color: var(--text-muted); line-height: 1.45; }
+    .ecom-inline-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.65rem; }
+    .ecom-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.55rem; }
+    .ecom-check {
+      display: flex; align-items: center; gap: 0.45rem; padding: 0.55rem 0.65rem;
+      border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; background: rgba(255,255,255,0.03); font-size: 0.8rem; color: var(--text);
+    }
+    .ecom-check input { margin: 0; width: auto; }
+    .ecom-upload-box { border: 1px dashed rgba(255,255,255,0.16); border-radius: 12px; padding: 0.8rem; background: rgba(255,255,255,0.025); }
+    .ecom-upload-box .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.6rem; }
+    .ecom-upload-list { display: flex; flex-wrap: wrap; gap: 0.55rem; }
+    .ecom-upload-item { width: 84px; position: relative; }
+    .ecom-upload-thumb { width: 84px; height: 84px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.05); }
+    .ecom-upload-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .ecom-upload-name { margin-top: 0.25rem; font-size: 0.68rem; color: var(--text-muted); line-height: 1.35; word-break: break-word; }
+    .ecom-upload-remove {
+      position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%;
+      border: 1px solid rgba(255,255,255,0.1); background: rgba(10,10,15,0.92); color: #fff; cursor: pointer;
+    }
+    .ecom-workspace-tabs { display: flex; gap: 0.3rem; padding: 4px; background: rgba(255,255,255,0.04); border-radius: var(--radius-sm); width: fit-content; }
+    .ecom-workspace-tab { padding: 0.48rem 0.95rem; border-radius: 8px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; font-weight: 500; }
+    .ecom-workspace-tab.active { color: var(--text); background: rgba(255,255,255,0.09); }
+    .ecom-workspace-panel { display: none; }
+    .ecom-workspace-panel.visible { display: block; }
+    .ecom-task-browser-top {
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at top left, rgba(245,158,11,0.12), transparent 34%),
+        radial-gradient(circle at top right, rgba(6,182,212,0.1), transparent 30%),
+        linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02)),
+        rgba(8,8,12,0.78);
+    }
+    .ecom-task-browser-head { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
+    .ecom-task-browser-title .eyebrow {
+      font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255,255,255,0.52);
+    }
+    .ecom-task-browser-actions { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .ecom-preview-stage { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.22rem 0.55rem; border-radius: 999px; background: rgba(255,255,255,0.06); color: var(--text); font-size: 0.74rem; }
+    .ecom-task-pill-row { display: flex; flex-wrap: wrap; gap: 0.55rem; margin-top: 0.95rem; }
+    .ecom-task-pill {
+      min-width: 0; max-width: 100%;
+      padding: 0.6rem 0.8rem; border-radius: 14px; border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03); color: var(--text); cursor: pointer; text-align: left;
+      transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+      font-family: inherit;
+    }
+    .ecom-task-pill:hover { border-color: rgba(255,255,255,0.18); transform: translateY(-1px); }
+    .ecom-task-pill.active { border-color: rgba(6,182,212,0.34); background: rgba(6,182,212,0.12); }
+    .ecom-task-pill .name {
+      display: block; font-size: 0.8rem; font-weight: 600; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .ecom-task-pill .meta {
+      display: block; margin-top: 0.18rem; font-size: 0.72rem; color: var(--text-muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .ecom-task-drawer {
+      display: none; margin-top: 0.95rem; padding-top: 0.95rem;
+      border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .ecom-task-drawer.open { display: block; }
+    .ecom-task-drawer-head { display: flex; justify-content: space-between; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+    .ecom-task-drawer-list { display: grid; gap: 0.7rem; margin-top: 0.85rem; }
+    .ecom-task-card {
+      width: 100%; padding: 0.8rem; border-radius: 16px; border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(255,255,255,0.03); cursor: pointer; text-align: left;
+      transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+      font-family: inherit;
+    }
+    .ecom-task-card:hover { border-color: rgba(255,255,255,0.18); transform: translateY(-1px); }
+    .ecom-task-card.active { border-color: rgba(6,182,212,0.34); background: rgba(6,182,212,0.12); }
+    .ecom-task-card-shell { display: grid; grid-template-columns: 54px minmax(0, 1fr); gap: 0.75rem; align-items: start; }
+    .ecom-task-card-thumb {
+      width: 54px; height: 54px; border-radius: 14px; overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .ecom-task-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .ecom-task-card-thumb span { font-size: 0.68rem; color: var(--text-muted); }
+    .ecom-task-card-head { display: flex; justify-content: space-between; gap: 0.65rem; align-items: flex-start; }
+    .ecom-task-card-title { margin: 0; font-size: 0.84rem; font-weight: 600; color: var(--text); line-height: 1.45; }
+    .ecom-task-card-meta { margin-top: 0.28rem; font-size: 0.72rem; color: var(--text-muted); line-height: 1.5; }
+    .ecom-task-card-counts { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.6rem; }
+    .ecom-task-count {
+      padding: 0.18rem 0.48rem; border-radius: 999px; font-size: 0.68rem;
+      background: rgba(255,255,255,0.06); color: var(--text-muted);
+    }
+    .ecom-result-overview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.7rem; }
+    .ecom-stat-card { padding: 0.85rem; border-radius: 14px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); }
+    .ecom-stat-card .label { font-size: 0.74rem; color: var(--text-muted); margin-bottom: 0.35rem; }
+    .ecom-stat-card .value { font-size: 1.25rem; font-weight: 700; color: var(--text); }
+    .ecom-browser-toolbar { display: flex; flex-direction: column; gap: 0.85rem; }
+    .ecom-browser-toolbar-head { display: flex; justify-content: space-between; gap: 0.75rem; align-items: flex-start; flex-wrap: wrap; }
+    .ecom-browser-toolbar-row { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
+    .ecom-result-overview-inline { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .ecom-result-overview-inline .ecom-stat-card { min-width: 84px; padding: 0.65rem 0.75rem; }
+    .ecom-result-overview-inline .ecom-stat-card .value { font-size: 1.05rem; }
+    .ecom-stage-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 0.65rem; margin-top: 0.85rem; }
+    .ecom-stage-strip-compact { margin-top: 0; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
+    .ecom-stage-chip { padding: 0.7rem 0.75rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03); }
+    .ecom-stage-chip .kicker { font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .ecom-stage-chip .name { margin-top: 0.25rem; font-size: 0.82rem; color: var(--text); font-weight: 600; }
+    .ecom-stage-chip.done { border-color: rgba(16,185,129,0.28); background: rgba(16,185,129,0.12); }
+    .ecom-stage-chip.running { border-color: rgba(245,158,11,0.28); background: rgba(245,158,11,0.12); }
+    .ecom-progress-bar { height: 8px; border-radius: 999px; background: rgba(255,255,255,0.07); overflow: hidden; }
+    .ecom-progress-bar > span { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, #f59e0b, #06b6d4); transition: width 0.25s ease; }
+    .ecom-progress-bar-compact { height: 6px; }
+    .ecom-browser-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) 320px; gap: 1rem; align-items: start; }
+    .ecom-browser-main { min-width: 0; display: flex; flex-direction: column; gap: 1rem; }
+    .ecom-browser-side { min-width: 0; display: flex; flex-direction: column; gap: 1rem; }
+    .ecom-browser-stage-head { display: flex; justify-content: space-between; gap: 0.85rem; align-items: flex-start; flex-wrap: wrap; margin-bottom: 0.85rem; }
+    .ecom-focused-preview {
+      min-height: 420px; border-radius: 18px; border: 1px solid rgba(255,255,255,0.08);
+      background:
+        radial-gradient(circle at top left, rgba(255,255,255,0.08), transparent 32%),
+        linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02)),
+        rgba(8,8,12,0.85);
+      display: flex; align-items: center; justify-content: center; overflow: hidden;
+    }
+    .ecom-focused-preview img {
+      width: 100%; height: 100%; max-height: 640px; object-fit: contain; display: block; background: #fff;
+    }
+    .ecom-focused-meta {
+      display: flex; justify-content: space-between; gap: 0.85rem; flex-wrap: wrap;
+      margin-top: 0.85rem; padding-top: 0.85rem; border-top: 1px solid rgba(255,255,255,0.08);
+    }
+    .ecom-focused-meta-copy { min-width: 0; flex: 1; }
+    .ecom-focused-meta-title { font-size: 0.9rem; font-weight: 600; color: var(--text); line-height: 1.45; }
+    .ecom-focused-meta-sub { margin-top: 0.3rem; font-size: 0.76rem; color: var(--text-muted); line-height: 1.6; word-break: break-word; }
+    .ecom-focused-meta-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: flex-start; }
+    .ecom-activity-list { display: flex; flex-direction: column; gap: 0.55rem; margin-top: 0.85rem; }
+    .ecom-activity-item { padding: 0.75rem 0.85rem; border-radius: 12px; border: 1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.03); font-size: 0.8rem; line-height: 1.5; }
+    .ecom-activity-item .meta { margin-top: 0.25rem; font-size: 0.72rem; color: var(--text-muted); }
+    .ecom-activity-compact { max-height: 260px; overflow: auto; padding-right: 0.15rem; }
+    .ecom-stage-strip-vertical { grid-template-columns: 1fr; }
+    .ecom-results-header { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+    .ecom-result-tabs { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+    .ecom-result-tab { padding: 0.35rem 0.65rem; border-radius: 999px; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.03); color: var(--text-muted); cursor: pointer; font-size: 0.78rem; font-family: inherit; }
+    .ecom-result-tab.active { color: var(--text); border-color: rgba(6,182,212,0.3); background: rgba(6,182,212,0.12); }
+    .ecom-result-tab.is-empty { opacity: 0.7; }
+    .ecom-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.8rem; }
+    .ecom-gallery-browser { grid-template-columns: repeat(auto-fill, minmax(156px, 1fr)); }
+    .ecom-gallery-results {
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 1rem;
+      align-items: start;
+    }
+    .ecom-gallery-item {
+      border-radius: 16px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.03);
+      overflow: hidden; padding: 0.5rem; cursor: pointer;
+      transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+      width: 100%; text-align: left; font-family: inherit; appearance: none;
+    }
+    .ecom-gallery-item:hover { border-color: rgba(255,255,255,0.18); transform: translateY(-1px); }
+    .ecom-gallery-item.active { border-color: rgba(6,182,212,0.34); background: rgba(6,182,212,0.1); }
+    .ecom-gallery-item.link-card { display: block; text-decoration: none; color: inherit; cursor: pointer; }
+    .ecom-gallery-item.link-card.is-static { cursor: default; }
+    .ecom-gallery-thumb { aspect-ratio: 1 / 1; background: rgba(255,255,255,0.04); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .ecom-gallery-thumb { border-radius: 12px; border: 1px solid rgba(255,255,255,0.08); }
+    .ecom-gallery-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .ecom-gallery-results .ecom-gallery-thumb { aspect-ratio: auto; min-height: 220px; background: rgba(10,10,14,0.88); }
+    .ecom-gallery-results .ecom-gallery-thumb img { object-fit: contain; background: #fff; }
+    .ecom-gallery-body { padding: 0.55rem 0.1rem 0.15rem; }
+    .ecom-gallery-body .title { font-size: 0.8rem; color: var(--text); font-weight: 600; line-height: 1.45; margin-bottom: 0.3rem; word-break: break-word; }
+    .ecom-gallery-body .meta { font-size: 0.72rem; color: var(--text-muted); line-height: 1.5; word-break: break-word; }
+    .ecom-results-panel-simple { display: flex; flex-direction: column; gap: 1rem; }
+    .ecom-results-strip { display: flex; justify-content: space-between; gap: 0.8rem; align-items: flex-start; flex-wrap: wrap; }
+    .ecom-empty { padding: 1rem; border: 1px dashed rgba(255,255,255,0.12); border-radius: 12px; color: var(--text-muted); font-size: 0.82rem; text-align: center; background: rgba(255,255,255,0.02); }
+    .ecom-example-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.8rem; }
+    .ecom-example-card {
+      padding: 0.95rem; border-radius: 16px; border: 1px solid rgba(255,255,255,0.08);
+      background: radial-gradient(circle at top left, rgba(255,255,255,0.06), transparent 30%), rgba(255,255,255,0.03); min-height: 180px;
+    }
+    .ecom-example-card h4 { margin: 0 0 0.35rem 0; font-size: 0.92rem; }
+    .ecom-example-card p { margin: 0; font-size: 0.78rem; line-height: 1.6; color: var(--text-muted); }
+    .ecom-example-tags { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.75rem; }
+    .ecom-example-tags span { font-size: 0.68rem; padding: 0.2rem 0.5rem; border-radius: 999px; background: rgba(255,255,255,0.06); color: var(--text-muted); }
+    @media (max-width: 1080px) {
+      .ecom-studio-shell, .ecom-browser-layout { grid-template-columns: 1fr; }
+      .ecom-browser-toolbar-row { flex-direction: column; }
+      .ecom-example-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 768px) {
+      .ecom-studio-hero { flex-direction: column; }
+      .ecom-inline-grid, .ecom-choice-grid, .ecom-result-overview { grid-template-columns: 1fr; }
+      .ecom-task-browser-head { flex-direction: column; }
+      .ecom-task-browser-actions { width: 100%; }
+      .ecom-focused-preview { min-height: 300px; }
+    }
+    #ecomOverviewStats,
+    #ecomRequestedOutputs,
+    #ecomFocusedCounter,
+    #ecomFocusedFolderHint,
+    #ecomFocusedPreview,
+    #ecomFocusedMeta,
+    .ecom-browser-toolbar-head,
+    .ecom-progress-bar-compact,
+    .ecom-results-header,
+    .ecom-browser-side,
+    .ecom-browser-main > .ecom-panel:first-child {
+      display: none !important;
+    }
+    .ecom-browser-layout {
+      grid-template-columns: 1fr;
+    }
+    .ecom-browser-toolbar {
+      padding-bottom: 0.9rem;
+    }
+    .ecom-browser-toolbar-row {
+      justify-content: flex-start;
+    }
+    #ecomGallery.ecom-gallery {
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 1rem;
+    }
   </style>
 </head>
 <body>
@@ -73,7 +316,7 @@
       <div class="header-left">
         <div class="logo">
           <img class="logo-mark" id="brandLogoMark" src="/static/bihu_32.png" width="32" height="32" alt="">
-          <span id="brandLogoPrimary" class="logo-primary">必火</span><span id="brandLogoAccent" class="logo-accent">openclaw</span>
+          <span id="brandLogoPrimary" class="logo-primary">必火</span><span id="brandLogoAccent" class="logo-accent">AI员工</span>
         </div>
         <span id="clientVersionLabel" class="header-version" title="本机纯代码包版本（热更新成功后与服务端 manifest 的 build 一致）"></span>
       </div>
@@ -167,6 +410,7 @@
           <div class="nav-left-item" data-view="billing">消费记录</div>
           <div class="nav-left-item" data-view="sys-config">系统配置</div>
           <div class="nav-left-item" data-view="logs">日志</div>
+          <div class="nav-left-item" data-view="agent" id="navAgent" style="display:none;">代理商</div>
         </nav>
         <div class="dashboard-main">
 
@@ -248,6 +492,313 @@
               </div>
               <div id="mcpRegistryResults" class="skill-store-grid" style="margin-top:0.75rem;"></div>
               <div id="mcpRegistryPaging" style="margin-top:0.75rem;text-align:center;display:flex;justify-content:center;align-items:center;gap:0.75rem;"></div>
+            </div>
+          </div>
+
+          <div id="content-ecommerce-detail-studio" class="content-block">
+            <div class="ecom-studio">
+              <div class="ecom-studio-hero">
+                <div class="ecom-studio-hero-copy">
+                  <h3>产品套图工作台</h3>
+                  <p>把商品主图、多角度图、卖点和风格预设组织成一套完整上架素材。这里会直接调用 <code>comfly_ecommerce_detail</code> 的异步流水线，按主图、SKU 图、透明/白底、详情图、素材图、橱窗图分组返回，适合反复校准与验图。</p>
+                  <div class="ecom-studio-badges">
+                    <span class="ecom-studio-badge">结构化输入</span>
+                    <span class="ecom-studio-badge">任务轮询进度</span>
+                    <span class="ecom-studio-badge">分类结果预览</span>
+                    <span class="ecom-studio-badge">复用 Comfly 凭据</span>
+                  </div>
+                </div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;">
+                  <button type="button" id="ecomStudioBackBtn" class="btn btn-ghost btn-sm">← 返回技能商店</button>
+                  <button type="button" class="btn btn-primary btn-sm js-comfly-config-btn">配置 Comfly</button>
+                </div>
+              </div>
+
+              <div class="ecom-studio-shell">
+                <aside class="ecom-studio-sidebar">
+                  <div class="ecom-panel">
+                    <h4 class="ecom-panel-title">商品素材</h4>
+                    <p class="ecom-panel-hint">至少上传 1 张商品主图。多角度图与风格参考图会作为额外控制信息参与生成。</p>
+
+                    <div class="ecom-field">
+                      <label>主商品图</label>
+                      <div class="ecom-upload-box">
+                        <div class="actions">
+                          <button type="button" id="ecomUploadMainBtn" class="btn btn-primary btn-sm">上传主图</button>
+                          <input type="file" id="ecomMainFileInput" accept="image/*" style="display:none;">
+                          <input type="text" id="ecomMainAssetIdInput" placeholder="或直接填写已存在的 asset_id">
+                        </div>
+                        <div id="ecomMainUploadList" class="ecom-upload-list"></div>
+                      </div>
+                    </div>
+
+                    <div class="ecom-field">
+                      <label>多角度商品图</label>
+                      <div class="ecom-upload-box">
+                        <div class="actions">
+                          <button type="button" id="ecomUploadProductRefsBtn" class="btn btn-ghost btn-sm">上传参考商品图</button>
+                          <input type="file" id="ecomProductRefsFileInput" accept="image/*" multiple style="display:none;">
+                        </div>
+                        <div id="ecomProductRefsList" class="ecom-upload-list"></div>
+                      </div>
+                    </div>
+
+                    <div class="ecom-field">
+                      <label>风格参考图</label>
+                      <div class="ecom-upload-box">
+                        <div class="actions">
+                          <button type="button" id="ecomUploadStyleRefsBtn" class="btn btn-ghost btn-sm">上传风格参考</button>
+                          <input type="file" id="ecomStyleRefsFileInput" accept="image/*" multiple style="display:none;">
+                        </div>
+                        <div id="ecomStyleRefsList" class="ecom-upload-list"></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="ecom-panel">
+                    <h4 class="ecom-panel-title">商品信息</h4>
+                    <div class="ecom-field">
+                      <label for="ecomProductNameInput">商品名</label>
+                      <input type="text" id="ecomProductNameInput" placeholder="例如：实木猫砂柜 / 牛仔外套 / 女包">
+                    </div>
+                    <div class="ecom-field">
+                      <label for="ecomProductDirectionInput">商品方向</label>
+                      <input type="text" id="ecomProductDirectionInput" placeholder="例如：猫家具、女装外套、收纳家居">
+                    </div>
+                    <div class="ecom-inline-grid">
+                      <div class="ecom-field">
+                        <label for="ecomSkuInput">SKU</label>
+                        <input type="text" id="ecomSkuInput" placeholder="可选">
+                      </div>
+                      <div class="ecom-field">
+                        <label for="ecomBrandInput">品牌</label>
+                        <input type="text" id="ecomBrandInput" placeholder="可选">
+                      </div>
+                    </div>
+                    <div class="ecom-field">
+                      <label for="ecomSellingPointsInput">卖点</label>
+                      <textarea id="ecomSellingPointsInput" placeholder="每行一个卖点，支持“标题|描述”格式&#10;例如：防带砂|走廊式结构减少猫砂外带"></textarea>
+                    </div>
+                    <div class="ecom-field">
+                      <label for="ecomSpecsInput">规格参数</label>
+                      <textarea id="ecomSpecsInput" placeholder="每行一个参数，支持“键:值”格式&#10;例如：尺寸:80x45x60cm"></textarea>
+                    </div>
+                    <div class="ecom-field">
+                      <label for="ecomComplianceNotesInput">合规备注</label>
+                      <textarea id="ecomComplianceNotesInput" placeholder="每行一条需要规避或不能乱写的说明"></textarea>
+                    </div>
+                  </div>
+
+                  <div class="ecom-panel">
+                    <h4 class="ecom-panel-title">风格与输出</h4>
+                    <div class="ecom-inline-grid">
+                      <div class="ecom-field">
+                        <label for="ecomStyleSelect">风格预设</label>
+                        <select id="ecomStyleSelect">
+                          <option value="creamy_vintage">中古孟菲斯风</option>
+                          <option value="creamy_wood" selected>奶油原木风</option>
+                          <option value="french_creamy">法式奶油风</option>
+                        </select>
+                      </div>
+                      <div class="ecom-field">
+                        <label for="ecomPageCountInput">详情页数</label>
+                        <input type="number" id="ecomPageCountInput" min="10" max="16" value="12">
+                      </div>
+                    </div>
+                    <div class="ecom-inline-grid">
+                      <div class="ecom-field">
+                        <label for="ecomDetailTemplateSelect">详情模板</label>
+                        <select id="ecomDetailTemplateSelect">
+                          <option value="detail_template_01">详情模板 01</option>
+                          <option value="detail_template_02" selected>详情模板 02</option>
+                          <option value="detail_template_03">详情模板 03</option>
+                        </select>
+                      </div>
+                      <div class="ecom-field">
+                        <label for="ecomShowcaseTemplateSelect">橱窗模板</label>
+                        <select id="ecomShowcaseTemplateSelect">
+                          <option value="showcase_template_01">橱窗模板 01</option>
+                          <option value="showcase_template_02" selected>橱窗模板 02</option>
+                          <option value="showcase_template_03">橱窗模板 03</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div class="ecom-field">
+                      <label>输出内容</label>
+                      <div class="ecom-choice-grid">
+                        <label class="ecom-check"><input type="checkbox" id="ecomTargetMain" checked>主图</label>
+                        <label class="ecom-check"><input type="checkbox" id="ecomTargetSku" checked>SKU 图</label>
+                        <label class="ecom-check"><input type="checkbox" id="ecomTargetTransparent" checked>透明图</label>
+                        <label class="ecom-check"><input type="checkbox" id="ecomTargetWhite" checked>白底图</label>
+                        <label class="ecom-check"><input type="checkbox" id="ecomTargetDetail" checked>详情图</label>
+                        <label class="ecom-check"><input type="checkbox" id="ecomTargetMaterial" checked>素材图</label>
+                        <label class="ecom-check"><input type="checkbox" id="ecomTargetShowcase" checked>橱窗图</label>
+                      </div>
+                    </div>
+                    <div class="ecom-inline-grid">
+                      <label class="ecom-check"><input type="checkbox" id="ecomIncludePetCheck">偏向宠物场景</label>
+                      <label class="ecom-check"><input type="checkbox" id="ecomIncludeHumanCheck">偏向人物场景</label>
+                    </div>
+                    <div class="ecom-inline-grid" style="margin-top:0.65rem;">
+                      <div class="ecom-field">
+                        <label for="ecomPetTypeInput">宠物类型</label>
+                        <input type="text" id="ecomPetTypeInput" placeholder="如 cat / dog">
+                      </div>
+                      <div class="ecom-field">
+                        <label for="ecomHumanTypeInput">人物类型</label>
+                        <input type="text" id="ecomHumanTypeInput" placeholder="如 female urban / mom">
+                      </div>
+                    </div>
+                    <div class="ecom-field">
+                      <label for="ecomDecorTagsInput">装饰偏好</label>
+                      <input type="text" id="ecomDecorTagsInput" placeholder="用逗号分隔，例如：原木、绿植、暖光">
+                    </div>
+                    <div id="ecomStudioMsg" class="msg" style="display:none;"></div>
+                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.9rem;">
+                      <button type="button" id="ecomStartBtn" class="btn btn-primary">开始生成套图</button>
+                      <button type="button" id="ecomResetBtn" class="btn btn-ghost">重置表单</button>
+                    </div>
+                  </div>
+                </aside>
+
+                <section class="ecom-studio-main">
+                  <div class="ecom-panel">
+                    <div class="ecom-workspace-tabs">
+                      <button type="button" class="ecom-workspace-tab active" data-ecom-tab="workspace">生成结果</button>
+                      <button type="button" class="ecom-workspace-tab" data-ecom-tab="examples">优秀案例</button>
+                    </div>
+                  </div>
+
+                  <div id="ecomWorkspacePanel" class="ecom-workspace-panel visible">
+                    <div class="ecom-panel ecom-task-browser-top">
+                      <div class="ecom-task-browser-head">
+                        <div class="ecom-task-browser-title">
+                          <div class="eyebrow">当前任务</div>
+                          <h4 id="ecomCurrentTaskTitle" class="ecom-panel-title" style="margin:0.15rem 0 0 0;">等待提交商品套图任务</h4>
+                          <div id="ecomCurrentTaskMeta" class="ecom-panel-hint" style="margin:0.35rem 0 0 0;">上传主图并提交后，这里会保留最近任务，方便在不同商品任务之间来回切换查看结果。</div>
+                        </div>
+                        <div class="ecom-task-browser-actions">
+                          <span class="ecom-preview-stage" id="ecomPreviewStatus">待提交</span>
+                          <button type="button" id="ecomRefreshBtn" class="btn btn-ghost btn-sm">刷新状态</button>
+                          <button type="button" id="ecomToggleTaskDrawerBtn" class="btn btn-ghost btn-sm">全部任务</button>
+                        </div>
+                      </div>
+                      <div id="ecomRecentTasks" class="ecom-task-pill-row">
+                        <div class="ecom-empty" style="width:100%;margin:0;">提交任务后，这里会保留最近任务，方便切换查看不同商品的套图结果。</div>
+                      </div>
+                      <div id="ecomTaskDrawer" class="ecom-task-drawer">
+                        <div class="ecom-task-drawer-head">
+                          <div>
+                            <h4 class="ecom-panel-title" style="margin-bottom:0.2rem;">全部任务</h4>
+                            <div class="ecom-panel-hint" style="margin:0;">后续批量跑多个商品时，可以从这里回看每个任务的生成结果。</div>
+                          </div>
+                        </div>
+                        <div id="ecomTaskDrawerList" class="ecom-task-drawer-list">
+                          <div class="ecom-empty">当前还没有任务记录。</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="ecom-panel ecom-browser-toolbar">
+                      <div class="ecom-browser-toolbar-head">
+                        <div>
+                          <h4 class="ecom-panel-title" style="margin-bottom:0.2rem;">结果浏览器</h4>
+                          <div id="ecomStatusSummary" class="ecom-panel-hint" style="margin:0;">按真实导出目录浏览结果，右侧只保留轻量状态和任务摘要。</div>
+                        </div>
+                        <span id="ecomCurrentJobText" class="ecom-preview-stage">尚未开始</span>
+                      </div>
+                      <div class="ecom-browser-toolbar-row">
+                        <div id="ecomResultTabs" class="ecom-result-tabs"></div>
+                        <div class="ecom-result-overview ecom-result-overview-inline" id="ecomOverviewStats">
+                          <div class="ecom-stat-card"><div class="label">主图</div><div class="value">0</div></div>
+                          <div class="ecom-stat-card"><div class="label">SKU 图</div><div class="value">0</div></div>
+                          <div class="ecom-stat-card"><div class="label">详情图</div><div class="value">0</div></div>
+                          <div class="ecom-stat-card"><div class="label">橱窗图</div><div class="value">0</div></div>
+                        </div>
+                      </div>
+                      <div class="ecom-stage-strip ecom-stage-strip-compact" id="ecomRequestedOutputs"></div>
+                      <div class="ecom-progress-bar ecom-progress-bar-compact"><span id="ecomProgressBarFill"></span></div>
+                    </div>
+
+                    <div class="ecom-browser-layout">
+                      <div class="ecom-browser-main">
+                        <div class="ecom-panel ecom-results-panel-simple">
+                          <div class="ecom-browser-stage-head">
+                            <div>
+                              <h4 id="ecomFocusedFolderTitle" class="ecom-panel-title" style="margin-bottom:0.2rem;">1 】主图</h4>
+                              <div id="ecomFocusedFolderHint" class="ecom-panel-hint" style="margin:0;">当前分类暂无结果，任务完成后会在这里显示大图预览。</div>
+                            </div>
+                            <span id="ecomFocusedCounter" class="ecom-preview-stage">0 张</span>
+                          </div>
+                          <div id="ecomFocusedPreview" class="ecom-focused-preview">
+                            <div class="ecom-empty" style="width:100%;margin:0;">上传主图并提交任务后，这里会显示当前选中的套图结果。</div>
+                          </div>
+                          <div id="ecomFocusedMeta" class="ecom-focused-meta">
+                            <div class="ecom-empty" style="width:100%;margin:0;">下方缩略图可切换预览，顶部目录标签可切换主图、SKU 图、透明白底、详情图等不同分类。</div>
+                          </div>
+                        </div>
+
+                        <div class="ecom-panel">
+                          <div class="ecom-results-header">
+                            <div>
+                              <h4 class="ecom-panel-title" style="margin-bottom:0.2rem;">当前分类缩略图</h4>
+                              <div class="ecom-panel-hint" style="margin:0;">点击缩略图切换大图，方便快速对比当前目录下的每一张产物。</div>
+                            </div>
+                          </div>
+                          <div id="ecomGallery" class="ecom-gallery ecom-gallery-browser ecom-gallery-results">
+                            <div class="ecom-empty" style="grid-column:1 / -1;">结果会在任务完成后展示在这里。</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <aside class="ecom-browser-side">
+                        <div class="ecom-panel">
+                          <h4 class="ecom-panel-title" style="margin-bottom:0.2rem;">任务节点</h4>
+                          <div class="ecom-panel-hint" style="margin:0;">这里只保留轻量进度，避免结果区被状态信息挤占。</div>
+                          <div class="ecom-stage-strip ecom-stage-strip-vertical" id="ecomStageChips"></div>
+                        </div>
+
+                        <div class="ecom-panel">
+                          <h4 class="ecom-panel-title" style="margin-bottom:0.2rem;">任务摘要</h4>
+                          <div id="ecomRunFacts" class="ecom-activity-list ecom-activity-compact">
+                            <div class="ecom-empty">生成完成后，这里会显示模型、页数、算力消耗和输出目录摘要。</div>
+                          </div>
+                        </div>
+
+                        <div class="ecom-panel">
+                          <h4 class="ecom-panel-title" style="margin-bottom:0.2rem;">最近步骤</h4>
+                          <div id="ecomActivityList" class="ecom-activity-list ecom-activity-compact">
+                            <div class="ecom-empty">还没有任务记录，填写左侧信息后开始生成。</div>
+                          </div>
+                        </div>
+                      </aside>
+                    </div>
+                  </div>
+
+                  <div id="ecomExamplesPanel" class="ecom-workspace-panel">
+                    <div class="ecom-panel">
+                      <h4 class="ecom-panel-title">优秀案例参考</h4>
+                      <div class="ecom-example-grid">
+                        <div class="ecom-example-card">
+                          <h4>主图要点</h4>
+                          <p>主体完整吃满尺寸，画面只有图，没有说明字；重点不是做“详情海报”，而是做能直接上架的纯图片主图。</p>
+                          <div class="ecom-example-tags"><span>1:1 / 3:4</span><span>主体完整</span><span>无排版字</span></div>
+                        </div>
+                        <div class="ecom-example-card">
+                          <h4>SKU 图要点</h4>
+                          <p>SKU 图应当是适合商城切图浏览的连续组图，场景图与版式图都要保证主体完整、边距安全、排版不外溢。</p>
+                          <div class="ecom-example-tags"><span>安全边距</span><span>结构清楚</span><span>统一风格</span></div>
+                        </div>
+                        <div class="ecom-example-card">
+                          <h4>详情与橱窗分离</h4>
+                          <p>详情图偏信息承载，橱窗图偏卖点传播。两者不能混成一套视觉，模板和文案密度要分开控制。</p>
+                          <div class="ecom-example-tags"><span>详情承载</span><span>橱窗传播</span><span>模板分离</span></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+              </div>
             </div>
           </div>
 
@@ -385,7 +936,7 @@
                 <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.75rem;">需与部署了 Messenger 路由的 lobster_server 一致；数据库与 SECRET_KEY 需与登录账号一致时 JWT 才有效（见文档）。</p>
                 <div class="form-group">
                   <label>Messenger API Base</label>
-                  <input type="text" id="messengerCloudUrlInput" placeholder="https://lobster-server.icu" style="max-width:28rem;">
+                  <input type="text" id="messengerCloudUrlInput" placeholder="http://43.162.111.36" style="max-width:28rem;">
                 </div>
                 <button type="button" id="saveMessengerCloudConfigBtn" class="btn btn-primary btn-sm">保存</button>
                 <span id="messengerCloudConfigMsg" class="msg" style="display:none;margin-left:0.5rem;"></span>
@@ -471,24 +1022,10 @@
               <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
                 <h3 style="margin:0;">企业微信配置</h3>
                 <div style="display:flex;gap:0.5rem;">
-                  <button type="button" id="wecomConfigDetailBtn" class="btn btn-primary btn-sm">进入详细界面</button>
                   <button type="button" id="wecomConfigBackBtn" class="btn btn-ghost btn-sm">← 返回技能商店</button>
                 </div>
               </div>
-              <div id="wecomCloudBlock" class="config-form" style="margin-top:1rem;padding:1rem;background:rgba(6,182,212,0.06);border:1px solid rgba(6,182,212,0.2);border-radius:var(--radius);">
-                <div class="section-title" style="margin-bottom:0.5rem;">企微云端（必填后即可拉取并回复）</div>
-                <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.75rem;">每个盒子独立密钥；服务器每接入新盒子需在云端增加一个 WECOM_FORWARD_SECRET，本盒子填写对应密钥。请勿提交到 git。</p>
-                <div class="form-group">
-                  <label>云端地址</label>
-                  <input type="text" id="wecomCloudUrlInputPage" placeholder="https://api.51ins.com" style="max-width:28rem;">
-                </div>
-                <div class="form-group">
-                  <label>转发密钥 (WECOM_FORWARD_SECRET)</label>
-                  <input type="password" id="wecomForwardSecretInputPage" placeholder="留空表示不修改已保存的密钥" style="max-width:28rem;">
-                </div>
-                <button type="button" id="saveWecomCloudConfigBtnPage" class="btn btn-primary btn-sm">保存云端配置</button>
-                <span id="wecomCloudConfigMsgPage" class="msg" style="display:none;margin-left:0.5rem;"></span>
-              </div>
+              <!-- 企微云端配置已移除：云端地址与 WECOM_FORWARD_SECRET 不再需要手动配置 -->
               <p style="font-size:0.85rem;color:var(--text-muted);margin-top:1rem;">配置多个企业微信应用，将回调 URL 填入企业微信后台即可接收消息并自动回复。部署在服务器时请确保该 URL 可从公网访问，建议使用 HTTPS。</p>
               <div style="margin-top:1rem;">
                 <button type="button" id="wecomConfigAddBtn" class="btn btn-primary btn-sm">+ 添加配置</button>
@@ -501,40 +1038,205 @@
           <div id="content-wecom-detail" class="content-block">
             <div class="card">
               <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
-                <h3 style="margin:0;">企业微信客服</h3>
+                <h3 style="margin:0;">企业微信客服 <span id="wecomDetailAppName" style="font-weight:normal;font-size:0.85rem;color:var(--text-muted);"></span></h3>
                 <button type="button" id="wecomDetailBackBtn" class="btn btn-ghost btn-sm">← 返回配置</button>
               </div>
               <div class="store-tabs" style="margin-top:0.75rem;">
                 <button type="button" class="wecom-detail-tab active" data-wecom-tab="messages">消息记录</button>
+                <button type="button" class="wecom-detail-tab" data-wecom-tab="contacts">通讯录</button>
+                <button type="button" class="wecom-detail-tab" data-wecom-tab="send">发消息</button>
                 <button type="button" class="wecom-detail-tab" data-wecom-tab="customers">客户配置</button>
+                <button type="button" class="wecom-detail-tab" data-wecom-tab="wechat-kf">微信客服</button>
                 <button type="button" class="wecom-detail-tab" data-wecom-tab="system">系统配置</button>
               </div>
               <div id="wecomTabMessages" class="wecom-tab-panel" style="margin-top:1rem;">
-                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-bottom:0.75rem;">
-                  <select id="wecomMsgConfigFilter" style="padding:0.35rem 0.5rem;font-size:0.82rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);min-width:10rem;"><option value="">全部应用</option></select>
-                  <button type="button" id="wecomRefreshMessagesBtn" class="btn btn-primary btn-sm">拉取新消息</button>
-                  <span style="font-size:0.8rem;color:var(--text-muted);">系统每 2 秒自动拉取并 AI 回复；此处仅刷新列表供检查</span>
-                </div>
-                <div style="display:flex;gap:0.75rem;min-height:320px;">
-                  <div id="wecomSessionListWrap" style="width:240px;flex-shrink:0;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;">
-                    <div style="padding:0.5rem 0.75rem;font-size:0.82rem;color:var(--text-muted);border-bottom:1px solid var(--border);">会话列表</div>
-                    <div id="wecomSessionList" style="flex:1;overflow-y:auto;min-height:200px;"></div>
+                <select id="wecomMsgConfigFilter" style="display:none;"><option value="">全部应用</option></select>
+                <div style="display:flex;gap:0;min-height:480px;height:calc(100vh - 280px);max-height:700px;">
+                  <div id="wecomSessionListWrap" style="width:260px;flex-shrink:0;border:1px solid var(--border);border-radius:var(--radius) 0 0 var(--radius);overflow:hidden;display:flex;flex-direction:column;background:rgba(255,255,255,0.02);">
+                    <div style="padding:0.4rem 0.75rem;font-size:0.85rem;font-weight:600;color:var(--text);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+                      <span>会话</span>
+                      <button type="button" id="wecomRefreshMessagesBtn" class="btn btn-ghost btn-sm" style="font-size:0.72rem;padding:0.15rem 0.4rem;" title="拉取新消息">刷新</button>
+                    </div>
+                    <div id="wecomSessionList" style="flex:1;overflow-y:auto;"></div>
                   </div>
-                  <div id="wecomMessageListWrap" style="flex:1;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;">
-                    <div id="wecomMessageListTitle" style="padding:0.5rem 0.75rem;font-size:0.82rem;color:var(--text-muted);border-bottom:1px solid var(--border);">请从左侧选择会话</div>
-                    <div id="wecomMessageList" style="flex:1;overflow-y:auto;min-height:200px;padding:0.5rem;"></div>
+                  <div id="wecomMessageListWrap" style="flex:1;border:1px solid var(--border);border-left:none;border-radius:0 var(--radius) var(--radius) 0;overflow:hidden;display:flex;flex-direction:column;">
+                    <div id="wecomMessageListTitle" style="padding:0.6rem 0.75rem;font-size:0.85rem;font-weight:600;color:var(--text);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+                      <span>请选择会话</span>
+                      <button type="button" id="wecomEditCustomerTopBtn" class="btn btn-ghost btn-sm" style="display:none;font-size:0.75rem;">客户资料</button>
+                    </div>
+                    <div id="wecomMessageList" style="flex:1;overflow-y:auto;padding:0.75rem;background:rgba(0,0,0,0.15);"></div>
+                    <div id="wecomSendBar" style="display:none;border-top:1px solid var(--border);padding:0.5rem 0.75rem;background:rgba(255,255,255,0.03);">
+                      <div id="wecomAttachPreview" style="display:none;margin-bottom:0.4rem;padding:0.4rem;background:rgba(255,255,255,0.05);border-radius:var(--radius-sm);position:relative;">
+                        <img id="wecomAttachImg" style="display:none;max-width:120px;max-height:80px;border-radius:4px;" />
+                        <span id="wecomAttachFileName" style="display:none;font-size:0.78rem;color:var(--text-secondary);"></span>
+                        <button type="button" id="wecomAttachRemove" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.5);color:#fff;border:none;border-radius:50%;width:18px;height:18px;font-size:12px;cursor:pointer;line-height:18px;text-align:center;">×</button>
+                      </div>
+                      <div style="display:flex;gap:0.5rem;align-items:flex-end;">
+                        <input type="file" id="wecomAttachInput" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar" style="display:none;" />
+                        <button type="button" id="wecomAttachBtn" title="发送图片/视频/文件" style="background:none;border:none;cursor:pointer;font-size:1.2rem;padding:0.3rem;color:var(--text-secondary);flex-shrink:0;">📎</button>
+                        <textarea id="wecomSendInput" rows="2" placeholder="输入消息…" style="flex:1;resize:none;padding:0.4rem 0.6rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);font-family:inherit;line-height:1.4;"></textarea>
+                        <button type="button" id="wecomChatSendBtn" class="btn btn-primary btn-sm" style="height:2.2rem;padding:0 1rem;">发送</button>
+                      </div>
+                      <div id="wecomSendMsg" class="msg" style="display:none;margin-top:0.3rem;font-size:0.78rem;"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <!-- 通讯录 Tab -->
+              <div id="wecomTabContacts" class="wecom-tab-panel" style="display:none;margin-top:1rem;">
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-bottom:0.75rem;">
+                  <select id="wecomContactsConfigFilter" style="display:none;"><option value="">请选择应用</option></select>
+                  <button type="button" id="wecomLoadContactsBtn" class="btn btn-primary btn-sm">加载通讯录</button>
+                </div>
+                <div style="display:flex;gap:0.75rem;min-height:360px;">
+                  <div id="wecomDeptTreeWrap" style="width:220px;flex-shrink:0;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;">
+                    <div style="padding:0.5rem 0.75rem;font-size:0.82rem;color:var(--text-muted);border-bottom:1px solid var(--border);">部门列表</div>
+                    <div id="wecomDeptTree" style="flex:1;overflow-y:auto;min-height:200px;padding:0.25rem;"></div>
+                  </div>
+                  <div id="wecomUserListWrap" style="flex:1;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;display:flex;flex-direction:column;">
+                    <div id="wecomUserListTitle" style="padding:0.5rem 0.75rem;font-size:0.82rem;color:var(--text-muted);border-bottom:1px solid var(--border);">选择部门后查看成员</div>
+                    <div id="wecomUserList" style="flex:1;overflow-y:auto;min-height:200px;padding:0.5rem;"></div>
+                  </div>
+                </div>
+              </div>
+              <!-- 发消息 Tab -->
+              <div id="wecomTabSend" class="wecom-tab-panel" style="display:none;margin-top:1rem;">
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-bottom:0.75rem;">
+                  <select id="wecomSendConfigFilter" style="display:none;"><option value="">请选择应用</option></select>
+                  <select id="wecomSendType" style="padding:0.35rem 0.5rem;font-size:0.82rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                    <option value="user">发给个人</option>
+                    <option value="party">发给部门</option>
+                    <option value="group">发给群聊</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                  <label style="font-size:0.82rem;color:var(--text-muted);">接收者 <span id="wecomRecipientHint" style="font-size:0.75rem;color:var(--accent);"></span></label>
+                  <div id="wecomSendRecipientWrap">
+                    <select id="wecomSendToUser" multiple size="6" style="width:100%;padding:0.3rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                      <option disabled>加载中…</option>
+                    </select>
+                    <select id="wecomSendToParty" multiple size="6" style="display:none;width:100%;padding:0.3rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                      <option disabled>加载中…</option>
+                    </select>
+                    <input type="text" id="wecomSendChatId" placeholder="群聊 chatid" style="display:none;width:100%;padding:0.4rem 0.6rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                  </div>
+                  <div style="margin-top:0.3rem;font-size:0.78rem;color:var(--text-muted);">按住 Ctrl 或 Shift 可多选；发给群聊需先创建群聊获得 chatid</div>
+                </div>
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                  <label style="font-size:0.82rem;color:var(--text-muted);">消息内容</label>
+                  <textarea id="wecomSendContent" rows="4" placeholder="输入消息内容…" style="width:100%;padding:0.4rem 0.6rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);resize:vertical;"></textarea>
+                </div>
+                <div class="form-group" style="margin-bottom:0.75rem;">
+                  <label style="font-size:0.82rem;color:var(--text-muted);">附件（可选）</label>
+                  <div style="display:flex;gap:0.5rem;align-items:center;">
+                    <input type="file" id="wecomSendAttachInput" accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx" style="display:none;">
+                    <button type="button" id="wecomSendAttachBtn" class="btn btn-ghost btn-sm" style="font-size:0.82rem;">📎 选择图片/视频</button>
+                    <span id="wecomSendAttachName" style="font-size:0.8rem;color:var(--text-muted);"></span>
+                  </div>
+                  <div id="wecomSendAttachPreview" style="display:none;margin-top:0.4rem;position:relative;max-width:200px;">
+                    <img id="wecomSendAttachImg" style="display:none;max-width:200px;max-height:120px;border-radius:6px;">
+                    <span id="wecomSendAttachFileName" style="display:none;font-size:0.82rem;color:var(--text-secondary);"></span>
+                    <button type="button" id="wecomSendAttachRemove" style="position:absolute;top:2px;right:2px;background:rgba(0,0,0,0.6);color:#fff;border:none;border-radius:50%;width:20px;height:20px;font-size:12px;cursor:pointer;line-height:20px;text-align:center;">×</button>
+                  </div>
+                </div>
+                <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                  <button type="button" id="wecomSendBtn" class="btn btn-primary btn-sm">发送消息</button>
+                  <button type="button" id="wecomScheduleBtn" class="btn btn-ghost btn-sm" style="border:1px solid var(--accent);">定时发布</button>
+                  <button type="button" id="wecomCreateGroupBtn" class="btn btn-ghost btn-sm">创建群聊</button>
+                  <span id="wecomSendMsg" class="msg" style="display:none;font-size:0.82rem;"></span>
+                </div>
+                <!-- 定时任务列表 -->
+                <div id="wecomScheduledList" style="margin-top:1rem;"></div>
+                <!-- 创建群聊 -->
+                <div id="wecomCreateGroupPanel" style="display:none;margin-top:1rem;padding:0.75rem;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius-sm);">
+                  <h4 style="margin:0 0 0.5rem 0;font-size:0.9rem;">创建群聊</h4>
+                  <div class="form-group" style="margin-bottom:0.5rem;">
+                    <label style="font-size:0.82rem;color:var(--text-muted);">群名称</label>
+                    <input type="text" id="wecomGroupName" placeholder="群聊名称" style="width:100%;padding:0.4rem 0.6rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                  </div>
+                  <div class="form-group" style="margin-bottom:0.5rem;">
+                    <label style="font-size:0.82rem;color:var(--text-muted);">成员列表（userid，逗号分隔，至少2人）</label>
+                    <input type="text" id="wecomGroupMembers" placeholder="user1,user2,user3" style="width:100%;padding:0.4rem 0.6rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                  </div>
+                  <div class="form-group" style="margin-bottom:0.5rem;">
+                    <label style="font-size:0.82rem;color:var(--text-muted);">群主（userid，可选）</label>
+                    <input type="text" id="wecomGroupOwner" placeholder="可选" style="width:100%;padding:0.4rem 0.6rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                  </div>
+                  <div style="display:flex;gap:0.5rem;align-items:center;">
+                    <button type="button" id="wecomCreateGroupSubmitBtn" class="btn btn-primary btn-sm">创建</button>
+                    <button type="button" id="wecomCreateGroupCancelBtn" class="btn btn-ghost btn-sm">取消</button>
+                    <span id="wecomCreateGroupMsg" class="msg" style="display:none;font-size:0.82rem;"></span>
+                  </div>
+                </div>
+                <!-- 定时发布弹窗 -->
+                <div id="wecomSchedulePanel" style="display:none;margin-top:1rem;padding:0.75rem;background:rgba(255,255,255,0.03);border:1px solid rgba(6,182,212,0.3);border-radius:var(--radius-sm);">
+                  <h4 style="margin:0 0 0.75rem 0;font-size:0.9rem;">定时发布</h4>
+                  <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.3rem;display:block;">选择星期</label>
+                    <div id="wecomScheduleWeekdays" style="display:flex;gap:0.4rem;flex-wrap:wrap;">
+                      <label style="display:flex;align-items:center;gap:0.2rem;font-size:0.84rem;cursor:pointer;"><input type="checkbox" value="1" style="accent-color:var(--accent);">周一</label>
+                      <label style="display:flex;align-items:center;gap:0.2rem;font-size:0.84rem;cursor:pointer;"><input type="checkbox" value="2" style="accent-color:var(--accent);">周二</label>
+                      <label style="display:flex;align-items:center;gap:0.2rem;font-size:0.84rem;cursor:pointer;"><input type="checkbox" value="3" style="accent-color:var(--accent);">周三</label>
+                      <label style="display:flex;align-items:center;gap:0.2rem;font-size:0.84rem;cursor:pointer;"><input type="checkbox" value="4" style="accent-color:var(--accent);">周四</label>
+                      <label style="display:flex;align-items:center;gap:0.2rem;font-size:0.84rem;cursor:pointer;"><input type="checkbox" value="5" style="accent-color:var(--accent);">周五</label>
+                      <label style="display:flex;align-items:center;gap:0.2rem;font-size:0.84rem;cursor:pointer;"><input type="checkbox" value="6" style="accent-color:var(--accent);">周六</label>
+                      <label style="display:flex;align-items:center;gap:0.2rem;font-size:0.84rem;cursor:pointer;"><input type="checkbox" value="7" style="accent-color:var(--accent);">周日</label>
+                    </div>
+                  </div>
+                  <div class="form-group" style="margin-bottom:0.75rem;">
+                    <label style="font-size:0.82rem;color:var(--text-muted);">发送时间</label>
+                    <input type="time" id="wecomScheduleTime" value="09:00" style="padding:0.4rem 0.6rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                  </div>
+                  <div style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.5rem;">将使用上方的接收者和消息内容创建定时任务</div>
+                  <div style="display:flex;gap:0.5rem;align-items:center;">
+                    <button type="button" id="wecomScheduleSubmitBtn" class="btn btn-primary btn-sm">创建定时任务</button>
+                    <button type="button" id="wecomScheduleCancelBtn" class="btn btn-ghost btn-sm">取消</button>
+                    <span id="wecomScheduleMsg" class="msg" style="display:none;font-size:0.82rem;"></span>
                   </div>
                 </div>
               </div>
               <div id="wecomTabCustomers" class="wecom-tab-panel" style="display:none;margin-top:1rem;">
                 <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-bottom:0.75rem;">
-                  <select id="wecomCustConfigFilter" style="padding:0.35rem 0.5rem;font-size:0.82rem;min-width:10rem;"><option value="">全部应用</option></select>
+                  <select id="wecomCustConfigFilter" style="display:none;"><option value="">全部应用</option></select>
                   <input type="text" id="wecomCustNameFilter" placeholder="姓名" style="padding:0.35rem 0.5rem;font-size:0.82rem;width:100px;">
                   <input type="text" id="wecomCustPhoneFilter" placeholder="手机" style="padding:0.35rem 0.5rem;font-size:0.82rem;width:120px;">
                   <button type="button" id="wecomCustSearchBtn" class="btn btn-ghost btn-sm">查询</button>
                   <button type="button" id="wecomCustAddBtn" class="btn btn-primary btn-sm">+ 添加客户</button>
                 </div>
                 <div id="wecomCustomerList" style="min-height:200px;"></div>
+              </div>
+              <!-- 微信客服 Tab -->
+              <div id="wecomTabWechatKf" class="wecom-tab-panel" style="display:none;margin-top:1rem;">
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-bottom:1rem;">
+                  <button type="button" id="kfCreateBtn" class="btn btn-primary btn-sm">+ 创建客服账号</button>
+                  <button type="button" id="kfSyncBtn" class="btn btn-ghost btn-sm">从企微同步</button>
+                  <span id="kfStatusMsg" class="msg" style="display:none;font-size:0.8rem;"></span>
+                </div>
+                <!-- 客服账号列表 -->
+                <div id="kfAccountList" style="margin-bottom:1rem;"></div>
+                <!-- 客服会话区域（选择客服账号后展示） -->
+                <div id="kfChatArea" style="display:none;">
+                  <div style="display:flex;gap:0;min-height:480px;height:calc(100vh - 360px);max-height:660px;">
+                    <div id="kfCustomerListWrap" style="width:240px;flex-shrink:0;border:1px solid var(--border);border-radius:var(--radius) 0 0 var(--radius);overflow:hidden;display:flex;flex-direction:column;background:rgba(255,255,255,0.02);">
+                      <div style="padding:0.4rem 0.75rem;font-size:0.85rem;font-weight:600;color:var(--text);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+                        <span>客户列表</span>
+                        <button type="button" id="kfRefreshCustomersBtn" class="btn btn-ghost btn-sm" style="font-size:0.72rem;padding:0.15rem 0.4rem;">刷新</button>
+                      </div>
+                      <div id="kfCustomerList" style="flex:1;overflow-y:auto;"></div>
+                    </div>
+                    <div id="kfMessageArea" style="flex:1;border:1px solid var(--border);border-left:none;border-radius:0 var(--radius) var(--radius) 0;overflow:hidden;display:flex;flex-direction:column;">
+                      <div id="kfMsgTitle" style="padding:0.6rem 0.75rem;font-size:0.85rem;font-weight:600;color:var(--text);border-bottom:1px solid var(--border);">请选择客户</div>
+                      <div id="kfMessageList" style="flex:1;overflow-y:auto;padding:0.75rem;background:rgba(0,0,0,0.15);"></div>
+                      <div id="kfSendBar" style="display:none;border-top:1px solid var(--border);padding:0.5rem 0.75rem;background:rgba(255,255,255,0.03);">
+                        <div style="display:flex;gap:0.5rem;align-items:flex-end;">
+                          <textarea id="kfSendInput" rows="2" placeholder="输入消息…" style="flex:1;resize:none;padding:0.4rem 0.6rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);font-family:inherit;line-height:1.4;"></textarea>
+                          <button type="button" id="kfSendBtn" class="btn btn-primary btn-sm" style="height:2.2rem;padding:0 1rem;">发送</button>
+                        </div>
+                        <div id="kfSendMsg" class="msg" style="display:none;margin-top:0.3rem;font-size:0.78rem;"></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
               <div id="wecomTabSystem" class="wecom-tab-panel" style="display:none;margin-top:1rem;">
                 <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:0.75rem;">企业与产品资料、资料模板。绑定到企微应用后，客服回复将严格基于这些资料。</p>
@@ -626,6 +1328,12 @@
                   <option value="xiaohongshu">小红书</option>
                   <option value="kuaishou">快手</option>
                   <option value="toutiao">今日头条</option>
+                  <option disabled>── 电商店铺 ──</option>
+                  <option value="douyin_shop">抖店</option>
+                  <option value="xiaohongshu_shop">小红书店铺</option>
+                  <option value="alibaba1688">1688</option>
+                  <option value="taobao">淘宝</option>
+                  <option value="pinduoduo">拼多多</option>
                 </select>
               </div>
               <div id="accountPublishShell">
@@ -876,6 +1584,18 @@
             </div>
           </div>
 
+          <!-- 代理商 -->
+          <div id="content-agent" class="content-block">
+            <div class="card">
+              <h3 style="margin:0 0 1rem 0;">代理商管理</h3>
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;margin-bottom:1rem;">
+                <span id="agentSubUserCount" style="font-size:0.9rem;color:var(--text-muted);">下级用户：加载中…</span>
+                <button type="button" id="agentRefreshBtn" class="btn btn-primary btn-sm">刷新</button>
+              </div>
+              <div id="agentSubUserList" style="overflow:auto;max-height:calc(100vh - 260px);"></div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
@@ -959,39 +1679,58 @@
 
   <!-- 企业微信配置 添加/编辑 弹窗 -->
   <div id="wecomConfigModal" class="modal-mask">
-    <div class="modal" style="max-width:520px;">
-      <h4 style="margin:0 0 0.75rem 0;font-size:1.05rem;" id="wecomConfigModalTitle">添加企业微信配置</h4>
-      <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 1rem 0;">从企业微信后台获取 Token、EncodingAESKey，填好后将生成的回调 URL 填入企微后台。</p>
-      <div class="modal-field">
-        <label>应用名称</label>
-        <input type="text" id="wecomConfigName" placeholder="默认应用">
-      </div>
-      <div class="modal-field">
-        <label>Token</label>
-        <input type="text" id="wecomConfigToken" placeholder="企业微信后台配置的 Token">
-      </div>
-      <div class="modal-field">
-        <label>EncodingAESKey</label>
-        <input type="text" id="wecomConfigAesKey" placeholder="43 位密钥，企微后台可获取">
-      </div>
-      <div class="modal-field">
-        <label>CorpID <span style="font-weight:normal;color:var(--text-muted);font-size:0.8rem;">(可选)</span></label>
-        <input type="text" id="wecomConfigCorpId" placeholder="企业 ID">
-      </div>
-      <div class="modal-field">
-        <label>绑定企业 <span style="font-weight:normal;color:var(--text-muted);font-size:0.8rem;">(可选，用于客服资料)</span></label>
-        <select id="wecomConfigEnterpriseId" style="width:100%;padding:0.4rem;font-size:0.9rem;"><option value="">不绑定</option></select>
-      </div>
-      <div class="modal-field">
-        <label>绑定产品 <span style="font-weight:normal;color:var(--text-muted);font-size:0.8rem;">(可选)</span></label>
-        <select id="wecomConfigProductId" style="width:100%;padding:0.4rem;font-size:0.9rem;"><option value="">不绑定</option></select>
-      </div>
-      <div class="modal-field">
-        <label>产品/知识库说明 <span style="font-weight:normal;color:var(--text-muted);font-size:0.8rem;">(可选)</span></label>
-        <textarea id="wecomConfigProductKnowledge" rows="3" placeholder="可填写产品介绍或知识库内容，将作为系统提示附加给 AI" style="resize:vertical;min-height:60px;"></textarea>
+    <div class="modal" style="max-width:480px;max-height:90vh;display:flex;flex-direction:column;">
+      <h4 style="margin:0 0 0.5rem 0;font-size:1.05rem;" id="wecomConfigModalTitle">添加企业微信配置</h4>
+      <div style="flex:1;overflow-y:auto;padding-right:0.25rem;">
+        <div class="modal-field" style="margin-bottom:0.5rem;">
+          <label>应用名称</label>
+          <input type="text" id="wecomConfigName" placeholder="默认应用">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
+          <div class="modal-field" style="margin-bottom:0.5rem;">
+            <label>CorpID</label>
+            <input type="text" id="wecomConfigCorpId" placeholder="ww开头企业ID">
+          </div>
+          <div class="modal-field" style="margin-bottom:0.5rem;">
+            <label>AgentId</label>
+            <input type="number" id="wecomConfigAgentId" placeholder="应用ID（数字）">
+          </div>
+        </div>
+        <div class="modal-field" style="margin-bottom:0.5rem;">
+          <label>Token</label>
+          <input type="text" id="wecomConfigToken" placeholder="接收消息 → API接收 → Token">
+        </div>
+        <div class="modal-field" style="margin-bottom:0.5rem;">
+          <label>EncodingAESKey</label>
+          <input type="text" id="wecomConfigAesKey" placeholder="43位密钥">
+        </div>
+        <div class="modal-field" style="margin-bottom:0.5rem;">
+          <label>应用 Secret</label>
+          <input type="text" id="wecomConfigSecret" placeholder="自建应用详情 → Secret">
+        </div>
+        <div class="modal-field" style="margin-bottom:0.5rem;">
+          <label>通讯录 Secret <span style="font-weight:normal;color:var(--text-muted);font-size:0.75rem;">(可选)</span></label>
+          <input type="text" id="wecomConfigContactsSecret" placeholder="管理工具 → 通讯录同步 → Secret">
+        </div>
+        <!-- 绑定企业/产品在编辑时展开 -->
+        <details id="wecomConfigAdvanced" style="margin-top:0.25rem;">
+          <summary style="font-size:0.82rem;color:var(--text-muted);cursor:pointer;margin-bottom:0.5rem;">绑定企业/产品（可选）</summary>
+          <div class="modal-field" style="margin-bottom:0.5rem;">
+            <label>绑定企业</label>
+            <select id="wecomConfigEnterpriseId" style="width:100%;padding:0.35rem;font-size:0.85rem;"><option value="">不绑定</option></select>
+          </div>
+          <div class="modal-field" style="margin-bottom:0.5rem;">
+            <label>绑定产品</label>
+            <select id="wecomConfigProductId" style="width:100%;padding:0.35rem;font-size:0.85rem;"><option value="">不绑定</option></select>
+          </div>
+          <div class="modal-field" style="margin-bottom:0.5rem;">
+            <label>产品/知识库说明</label>
+            <textarea id="wecomConfigProductKnowledge" rows="2" placeholder="可选：产品介绍或知识库内容" style="resize:vertical;min-height:40px;"></textarea>
+          </div>
+        </details>
       </div>
       <div id="wecomConfigModalMsg" class="msg" style="display:none;margin-top:0.5rem;"></div>
-      <div class="btns" style="justify-content:flex-end;">
+      <div class="btns" style="justify-content:flex-end;padding-top:0.5rem;border-top:1px solid rgba(255,255,255,0.08);margin-top:0.5rem;flex-shrink:0;">
         <button type="button" class="btn btn-ghost" id="wecomConfigModalCancel">取消</button>
         <button type="button" class="btn btn-primary" id="wecomConfigModalSave">保存</button>
       </div>
@@ -1141,6 +1880,12 @@
           <option value="xiaohongshu">小红书</option>
           <option value="kuaishou">快手</option>
           <option value="toutiao">今日头条</option>
+          <option disabled>── 电商店铺 ──</option>
+          <option value="douyin_shop">抖店</option>
+          <option value="xiaohongshu_shop">小红书店铺</option>
+          <option value="alibaba1688">1688</option>
+          <option value="taobao">淘宝</option>
+          <option value="pinduoduo">拼多多</option>
         </select>
       </div>
       <div class="modal-field" style="margin-bottom:0.65rem;">
@@ -1372,9 +2117,13 @@
   <script src="/static/js/twilio-whatsapp-detail.js"></script>
   <script src="/static/js/wecom-config.js"></script>
   <script src="/static/js/wecom-detail.js"></script>
+  <script src="/static/js/wecom-kf.js"></script>
+  <script src="/static/js/comfly-ecommerce-detail.js"></script>
+  <script src="/static/js/wecom-contacts.js"></script>
   <script src="/static/js/publish.js"></script>
   <script src="/static/js/production.js"></script>
   <script src="/static/js/sysconfig.js"></script>
+  <script src="/static/js/agent.js"></script>
   <script src="/static/js/init.js"></script>
 </body>
 </html>

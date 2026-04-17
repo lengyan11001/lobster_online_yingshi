@@ -65,6 +65,12 @@ window._openYoutubeAccountsView = function() {
   try { location.hash = 'youtube-accounts'; } catch (e1) {}
 };
 
+window._openEcommerceDetailStudioView = function() {
+  _switchToHiddenView('ecommerce-detail-studio');
+  if (typeof window.initEcommerceDetailStudioView === 'function') window.initEcommerceDetailStudioView();
+  try { location.hash = 'ecommerce-detail-studio'; } catch (e1) {}
+};
+
 function _openTwilioWhatsappConfigView() {
   _ensureSkillStoreVisible();
   var modal = document.getElementById('twilioWhatsappConfigModal');
@@ -231,9 +237,72 @@ function _renderComflyCard() {
     '<div class="card-actions"><button type="button" class="btn btn-primary btn-sm" id="comflyConfigBtn">配置</button></div></div>';
 }
 
+function _renderEcommerceDetailCard(opts) {
+  opts = opts || {};
+  var pkg = opts.pkg || {};
+  var ok = _comflyStatus.effective_ready;
+  var rawTitle = (pkg.name && String(pkg.name).trim()) || '';
+  var rawDesc = (pkg.description && String(pkg.description).trim()) || '';
+  var title = rawTitle && !/^\?+$/.test(rawTitle) ? rawTitle : '电商上架套图';
+  var desc = rawDesc && !/^\?+$/.test(rawDesc) ? rawDesc :
+    '把商品图、卖点、风格和模板组织成一次完整的上架视觉资产生产流程，覆盖主图、SKU 图、透明/白底、详情图、素材图与橱窗图。';
+  var statusBadge = ok
+    ? '<span class="badge-installed">已就绪</span>'
+    : '<span class="badge-coming" style="background:rgba(251,146,60,0.15);color:#fb923c;border-color:rgba(251,146,60,0.3);">待配置</span>';
+  var sub = ok
+    ? '<div style="margin-top:0.45rem;font-size:0.78rem;color:var(--text-muted);">直接进入工作台，按结构化参数控制本次套图生成内容。</div>'
+    : '<div style="margin-top:0.55rem;padding:0.55rem 0.7rem;background:rgba(245,158,11,0.06);border:1px solid rgba(245,158,11,0.2);border-radius:8px;font-size:0.78rem;color:var(--text-muted);line-height:1.55;">先在本机保存 <strong>Comfly API Key</strong> 与 API Base，然后再进入产品套图工作台。这个界面是专门用于批量生成电商上架素材的，不是聊天入口。</div>';
+  return '<div class="skill-store-card ecommerce-detail-card" style="cursor:pointer;border-color:rgba(236,72,153,0.34);background:linear-gradient(135deg,rgba(236,72,153,0.08),rgba(245,158,11,0.05));">' +
+    '<div class="card-label">生成 · 内置 ' + statusBadge + '</div>' +
+    '<div class="card-value">' + escapeHtml(title) + '</div>' +
+    '<div class="card-desc">' + escapeHtml(desc) + '</div>' +
+    sub +
+    '<div class="card-tags"><span class="tag">上架套图</span><span class="tag">SKU</span><span class="tag">详情图</span><span class="tag">Comfly</span></div>' +
+    '<div class="card-actions" style="display:flex;flex-wrap:wrap;gap:0.35rem;">' +
+      '<button type="button" class="btn btn-primary btn-sm ecommerce-detail-entry-btn">进入工作台</button>' +
+      '<button type="button" class="btn btn-ghost btn-sm js-comfly-config-btn">配置 Comfly</button>' +
+    '</div></div>';
+}
+
 function _openclawWeixinResolveBase() {
   if (typeof LOCAL_API_BASE === 'undefined' || !LOCAL_API_BASE) return '';
   return String(LOCAL_API_BASE).replace(/\/$/, '');
+}
+
+function _fetchSkillStoreFrom(base) {
+  var b = String(base || '').replace(/\/$/, '');
+  if (!b) return Promise.resolve({ packages: [] });
+  return fetch(b + '/skills/store', { headers: authHeaders() })
+    .then(function(r) {
+      return r.json().then(function(d) {
+        return { ok: r.ok, data: d || {} };
+      });
+    })
+    .then(function(res) {
+      if (!res.ok) throw new Error((res.data && res.data.detail) || 'load_skill_store_failed');
+      return res.data || {};
+    });
+}
+
+function _mergeSkillStorePackages(primary, secondary) {
+  var out = [];
+  var seen = {};
+  var first = (primary && Array.isArray(primary.packages)) ? primary.packages : [];
+  var second = (secondary && Array.isArray(secondary.packages)) ? secondary.packages : [];
+  first.forEach(function(pkg) {
+    if (!pkg || !pkg.id || seen[pkg.id]) return;
+    seen[pkg.id] = true;
+    out.push(pkg);
+  });
+  second.forEach(function(pkg) {
+    if (!pkg || !pkg.id || seen[pkg.id]) return;
+    seen[pkg.id] = true;
+    out.push(pkg);
+  });
+  return {
+    packages: out,
+    is_skill_store_admin: !!(primary && primary.is_skill_store_admin)
+  };
 }
 
 function _renderOpenclawWeixinCard(opts) {
@@ -284,15 +353,25 @@ function loadSkillStore() {
   if (!el) return;
   el.innerHTML = '<p class="meta">加载中…</p>';
 
-  fetch(API_BASE + '/skills/store', { headers: authHeaders() })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
+  var remoteBase = (typeof API_BASE !== 'undefined' ? API_BASE : '') || '';
+  var localBase = (typeof LOCAL_API_BASE !== 'undefined' ? LOCAL_API_BASE : '') || '';
+  var remoteReq = _fetchSkillStoreFrom(remoteBase).catch(function() { return { packages: [] }; });
+  var localReq = (!localBase || String(localBase).replace(/\/$/, '') === String(remoteBase).replace(/\/$/, ''))
+    ? Promise.resolve({ packages: [] })
+    : _fetchSkillStoreFrom(localBase).catch(function() { return { packages: [] }; });
+
+  Promise.all([remoteReq, localReq])
+    .then(function(results) {
+      var d = _mergeSkillStorePackages(results[0], results[1]);
       var packages = (d && Array.isArray(d.packages)) ? d.packages : [];
       var isSkillAdmin = !!(d && d.is_skill_store_admin);
       var needYoutube = packages.some(function(p) { return p.id === 'youtube_publish'; });
+      var ecommercePkg = packages.filter(function(p) { return p.id === 'comfly_ecommerce_detail_skill'; })[0] || null;
 
       function paintSkillStoreList() {
-        var html = _renderXSkillCard() + _renderComflyCard() + _renderMetaSocialCard();
+        var html = _renderXSkillCard() + _renderComflyCard();
+        if (ecommercePkg) html += _renderEcommerceDetailCard({ pkg: ecommercePkg });
+        html += _renderMetaSocialCard();
         var hasWxPkg = packages.some(function(p) { return p.id === 'openclaw_weixin_channel'; });
         if (hasWxPkg) {
           var wxPkg = packages.filter(function(p) { return p.id === 'openclaw_weixin_channel'; })[0];
@@ -309,6 +388,7 @@ function loadSkillStore() {
           if (pkg.id === 'sutui_mcp') return '';
           /* 爆款TVC 仅由上方 _renderComflyCard() 展示，避免与 skill_registry 的 comfly_veo_skill 重复成两张卡 */
           if (pkg.id === 'comfly_veo_skill') return '';
+          if (pkg.id === 'comfly_ecommerce_detail_skill') return '';
           if (pkg.id === 'openclaw_weixin_channel') return '';
           if (pkg.id === 'youtube_publish') {
             if (typeof EDITION === 'undefined' || EDITION !== 'online') return '';
@@ -335,6 +415,16 @@ function loadSkillStore() {
             '<div class="card-desc">' + escapeHtml(pkg.description || '') + capM + '</div>' +
             '<div class="card-tags">' + tagsM + '</div>' +
             '<div class="card-actions"><button type="button" class="btn btn-primary btn-sm messenger-config-entry-btn">进入配置</button></div></div>';
+        }
+        if (pkg.id === 'ecommerce_publish_skill') {
+          var tagsE = (pkg.tags || []).map(function(t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join('');
+          var capE = pkg.capabilities_count ? ' · ' + pkg.capabilities_count + ' 个能力' : '';
+          return '<div class="skill-store-card ecommerce-publish-card" style="cursor:pointer;border-color:rgba(251,146,60,0.35);background:linear-gradient(135deg,rgba(251,146,60,0.08),transparent);">' +
+            '<div class="card-label">' + debugBadge + escapeHtml(pkg.type || 'skill') + ' <span class="badge-installed">可配置</span></div>' +
+            '<div class="card-value">' + escapeHtml(pkg.name || pkg.id) + '</div>' +
+            '<div class="card-desc">' + escapeHtml(pkg.description || '') + capE + '</div>' +
+            '<div class="card-tags">' + tagsE + '</div>' +
+            '<div class="card-actions"><button type="button" class="btn btn-primary btn-sm ecommerce-publish-entry-btn">管理店铺账号</button></div></div>';
         }
         if (pkg.id === 'wecom_reply') {
           var tags = (pkg.tags || []).map(function(t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join('');
@@ -375,6 +465,8 @@ function loadSkillStore() {
         _bindTwilioWhatsappCardEntry();
         _bindYoutubePublishCardEntry();
         _bindMetaSocialCardEntry();
+        _bindEcommerceDetailCardEntry();
+        _bindEcommercePublishCardEntry();
         _bindInstallUninstall(el);
         _bindXSkillConfigBtn();
         _bindComflyConfigBtn();
@@ -543,16 +635,79 @@ function _bindWecomConfigEntry() {
   });
 }
 
+function _bindEcommercePublishCardEntry() {
+  document.querySelectorAll('.ecommerce-publish-card').forEach(function(card) {
+    card.addEventListener('click', function(e) {
+      if (e.target.closest('.card-actions')) return;
+      _navigateToEcommerceAccounts();
+    });
+  });
+  document.querySelectorAll('.ecommerce-publish-entry-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      _navigateToEcommerceAccounts();
+    });
+  });
+}
+
+function _navigateToEcommerceAccounts() {
+  var publishTab = document.querySelector('[data-view="publish"]');
+  if (publishTab) publishTab.click();
+  setTimeout(function() {
+    var filter = document.getElementById('accountPlatformFilter');
+    if (filter) {
+      filter.value = 'douyin_shop';
+      filter.dispatchEvent(new Event('change'));
+    }
+  }, 300);
+}
+
 // ── xSkill Token Modal ──────────────────────────────────────────────
 
-function _bindComflyConfigBtn() {
-  var btn = document.getElementById('comflyConfigBtn');
-  if (!btn) return;
-  btn.addEventListener('click', function() {
-    var modal = document.getElementById('comflyModal');
-    var keyInput = document.getElementById('comflyApiKeyInput');
-    var baseInput = document.getElementById('comflyApiBaseInput');
-    if (!modal) return;
+function _bindEcommerceDetailCardEntry() {
+  document.querySelectorAll('.ecommerce-detail-card').forEach(function(card) {
+    card.addEventListener('click', function(e) {
+      if (e.target.closest('.card-actions')) return;
+      if (typeof window._openEcommerceDetailStudioView === 'function') window._openEcommerceDetailStudioView();
+    });
+  });
+  document.querySelectorAll('.ecommerce-detail-entry-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (typeof window._openEcommerceDetailStudioView === 'function') window._openEcommerceDetailStudioView();
+    });
+  });
+}
+
+function _bindComflyConfigBtn__legacy_unused() {
+  document.querySelectorAll('#comflyConfigBtn, .js-comfly-config-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var modal = document.getElementById('comflyModal');
+      var keyInput = document.getElementById('comflyApiKeyInput');
+      var baseInput = document.getElementById('comflyApiBaseInput');
+      if (!modal) return;
+      if (keyInput) {
+        keyInput.value = '';
+        keyInput.placeholder = _comflyStatus.has_user_key
+          ? '已保存(' + (_comflyStatus.masked_user_key || '……') + ')，输入新 Key 可覆盖'
+          : '粘贴 Comfly API Key';
+      }
+      if (baseInput) {
+        baseInput.value = _comflyStatus.user_api_base || '';
+        baseInput.placeholder = _comflyStatus.default_api_base_hint || 'https://ai.comfly.chat/v1';
+      }
+      var msgEl = document.getElementById('comflyModalMsg');
+      if (msgEl) { msgEl.style.display = 'none'; msgEl.textContent = ''; }
+      modal.classList.add('visible');
+    });
+  });
+  return;
+  document.querySelectorAll('#comflyConfigBtn, .js-comfly-config-btn').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      var modal = document.getElementById('comflyModal');
+      var keyInput = document.getElementById('comflyApiKeyInput');
+      var baseInput = document.getElementById('comflyApiBaseInput');
+      if (!modal) return;
     if (keyInput) {
       keyInput.value = '';
       keyInput.placeholder = _comflyStatus.has_user_key
@@ -565,7 +720,8 @@ function _bindComflyConfigBtn() {
     }
     var msgEl = document.getElementById('comflyModalMsg');
     if (msgEl) { msgEl.style.display = 'none'; msgEl.textContent = ''; }
-    modal.classList.add('visible');
+      modal.classList.add('visible');
+    });
   });
 }
 
@@ -581,6 +737,39 @@ function _bindXSkillConfigBtn() {
     if (tokenInput) { tokenInput.value = ''; tokenInput.placeholder = _xskillStatus.has_token ? '已配置 (' + _xskillStatus.token + ')' : 'sk-...'; }
     if (urlInput) urlInput.value = _xskillStatus.url || '';
     modal.classList.add('visible');
+  });
+}
+
+function _openComflyConfigModal() {
+  var modal = document.getElementById('comflyModal');
+  var keyInput = document.getElementById('comflyApiKeyInput');
+  var baseInput = document.getElementById('comflyApiBaseInput');
+  if (!modal) return;
+  if (keyInput) {
+    keyInput.value = '';
+    keyInput.placeholder = _comflyStatus.has_user_key
+      ? '已保存 Key（' + (_comflyStatus.masked_user_key || '已脱敏') + '），输入新 Key 可覆盖'
+      : '粘贴 Comfly API Key';
+  }
+  if (baseInput) {
+    baseInput.value = _comflyStatus.user_api_base || '';
+    baseInput.placeholder = _comflyStatus.default_api_base_hint || 'https://ai.comfly.chat/v1';
+  }
+  var msgEl = document.getElementById('comflyModalMsg');
+  if (msgEl) {
+    msgEl.style.display = 'none';
+    msgEl.textContent = '';
+  }
+  modal.classList.add('visible');
+}
+
+function _bindComflyConfigBtn() {
+  document.querySelectorAll('#comflyConfigBtn, .js-comfly-config-btn').forEach(function(btn) {
+    if (btn.dataset.comflyBound === '1') return;
+    btn.dataset.comflyBound = '1';
+    btn.addEventListener('click', function() {
+      _openComflyConfigModal();
+    });
   });
 }
 

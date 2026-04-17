@@ -1,7 +1,7 @@
 {
   "version": "1.0.7",
   "build": 10,
-  "bundle_url": "https://api.51ins.com/client/client-code/bundles/lobster_online_client_code_ota_20260408124716.zip",
+  "bundle_url": "http://42.194.209.150/client/client-code/bundles/lobster_online_client_code_ota_20260408124716.zip",
   "sha256": "ea478fa3ece1e7dc3435960492ae12a19c014db274ecd1bb2ddb24e6bc2c5b38",
   "note": "OTA build 10：chat 文生图解析/兜底与 LOBSTER_CHAT_POLICY_TOOLS 口径；zip 见 lobster_online_client_code_ota_20260408124716.zip（上传 bundles 后覆盖 bundle_url 前缀若有差异以线上为准）"
 }

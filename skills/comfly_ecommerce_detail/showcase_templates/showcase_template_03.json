@@ -1,0 +1,18 @@
+{
+  "template_id": "showcase_template_03",
+  "display_name": "French Editorial Showcase",
+  "count_source": "selling_points",
+  "min_count": 4,
+  "max_count": 6,
+  "variant_sequence": [3, 1, 2, 3, 1, 0],
+  "theme": {
+    "background": "#f6f0ea",
+    "card_white": "#fcf7f2",
+    "text": "#2c221d",
+    "muted": "#7b6b61",
+    "accent": "#cc8662",
+    "chip_bg": "#92715e",
+    "chip_text": "#fff8f3",
+    "soft_line": "#eaded4"
+  }
+}

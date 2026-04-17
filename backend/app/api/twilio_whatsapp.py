@@ -111,7 +111,7 @@ def _twilio_remote_upstream_base() -> str:
         return str(raw).strip().rstrip("/")
     edition = (getattr(settings, "lobster_edition", None) or "").strip().lower()
     if edition == "online":
-        return "https://lobster-server.icu"
+        return "http://43.162.111.36"
     return ""
 
 

@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from ..api.auth import create_access_token
-from .internal_chat_client import chat_headers_for_user
+from .internal_chat_client import chat_headers_for_forwarded_browser, chat_headers_for_user
 from ..core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -488,6 +488,8 @@ async def generate_review_drafts_via_chat(
     variant_count: int,
     replace_slot_hint: str | None = None,
     video_source_asset_id: Optional[str] = None,
+    user_bearer_token: Optional[str] = None,
+    x_installation_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     req = (requirements_text or "").strip()
     if not req:
@@ -503,12 +505,20 @@ async def generate_review_drafts_via_chat(
         replace_hint=replace_slot_hint,
         video_source_asset_id=video_source_asset_id,
     )
-    token = create_access_token(
-        data={"sub": str(user_id)},
-        expires_delta=timedelta(hours=1),
-    )
     url = f"{_api_base_url()}/chat"
-    headers = chat_headers_for_user(user_id, token)
+    ut = (user_bearer_token or "").strip()
+    if ut:
+        headers = chat_headers_for_forwarded_browser(
+            user_id,
+            bearer_token=ut,
+            x_installation_id=x_installation_id,
+        )
+    else:
+        token = create_access_token(
+            data={"sub": str(user_id)},
+            expires_delta=timedelta(hours=1),
+        )
+        headers = chat_headers_for_user(user_id, token)
     payload = {
         "message": msg,
         "history": [],

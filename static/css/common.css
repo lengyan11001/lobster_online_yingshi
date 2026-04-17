@@ -676,6 +676,12 @@
       white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .chat-session-item .session-time { font-size: 0.7rem; color: var(--text-muted); margin-top: 0.15rem; }
+    .session-pending-dot {
+      display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+      background: var(--accent); margin-right: 5px; vertical-align: middle;
+      animation: session-dot-pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes session-dot-pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
 
     /* 手机端适配 */
     @media (max-width: 768px) {

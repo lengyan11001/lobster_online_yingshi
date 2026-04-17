@@ -1,0 +1,47 @@
+[
+  {
+    "tag": "A",
+    "type": "",
+    "placeholder": "",
+    "id": "logo",
+    "className": "",
+    "name": "",
+    "innerText": "",
+    "ariaLabel": "",
+    "dataTestid": "",
+    "href": "#",
+    "visible": true,
+    "role": "",
+    "contentEditable": false
+  },
+  {
+    "tag": "A",
+    "type": "",
+    "placeholder": "",
+    "id": "",
+    "className": "intro-btn signup",
+    "name": "",
+    "innerText": "注册",
+    "ariaLabel": "",
+    "dataTestid": "",
+    "href": "https://sso.toutiao.com/login/?service=https://mp.toutiao.com/mp/agw/media/v2/sso_confirm?redirect_url=JTJGcHJvZmlsZV92NCUyRg==",
+    "visible": true,
+    "role": "",
+    "contentEditable": false
+  },
+  {
+    "tag": "A",
+    "type": "",
+    "placeholder": "",
+    "id": "",
+    "className": "intro-btn login",
+    "name": "",
+    "innerText": "登录",
+    "ariaLabel": "",
+    "dataTestid": "",
+    "href": "https://sso.toutiao.com/login/?service=https://mp.toutiao.com/mp/agw/media/v2/sso_confirm?redirect_url=JTJGcHJvZmlsZV92NCUyRg==",
+    "visible": true,
+    "role": "",
+    "contentEditable": false
+  }
+]

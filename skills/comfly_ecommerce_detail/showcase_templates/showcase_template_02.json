@@ -1,0 +1,13 @@
+{
+  "template_id": "showcase_template_02",
+  "display_name": "Dense Gallery Mosaic",
+  "count_source": "selling_points",
+  "min_count": 4,
+  "max_count": 6,
+  "variant_sequence": [0, 1, 0, 3, 2, 1],
+  "theme": {
+    "card_white": "#f8f2ea",
+    "soft_line": "#e8dbcf",
+    "accent": "#e06d2d"
+  }
+}

@@ -78,8 +78,7 @@ async def get_edition():
     }
     if not use_independent:
         out["recharge_url"] = (getattr(settings, "sutui_recharge_url", None) or "").strip() or None
-    # 合并认证中心（AUTH_SERVER_BASE）的支付开关，否则 init.js 中 USE_OWN_WECHAT_PAY 恒为 false，充值只走 create 无扫码
-    out["use_own_wechat_pay"] = False
+    out["use_fubei_pay"] = False
     out["use_own_wechat_login"] = False
     base = (getattr(settings, "auth_server_base", None) or "").strip().rstrip("/")
     if base:
@@ -89,8 +88,8 @@ async def get_edition():
             if r.status_code == 200:
                 remote = r.json()
                 if isinstance(remote, dict):
-                    if "use_own_wechat_pay" in remote:
-                        out["use_own_wechat_pay"] = bool(remote.get("use_own_wechat_pay"))
+                    if "use_fubei_pay" in remote:
+                        out["use_fubei_pay"] = bool(remote.get("use_fubei_pay"))
                     if "use_own_wechat_login" in remote:
                         out["use_own_wechat_login"] = bool(remote.get("use_own_wechat_login"))
         except Exception as e:

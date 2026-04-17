@@ -193,6 +193,35 @@ class _ServerUser:
         self.id = id
 
 
+_INTERNAL_INSTALL_ID_RE = re.compile(r"^lobster-internal-(\d+)$", re.IGNORECASE)
+
+
+def _server_user_from_internal_lobster_jwt(request: Request, token: str) -> Optional[_ServerUser]:
+    """
+    本机代用户调用 POST /chat 等：create_access_token（本机 secret）+ X-Installation-Id lobster-internal-{uid}。
+    认证中心不识别该 JWT；在 auth/me 返回 401/403 时用本机 HS256 校验 sub 与 Installation-Id 一致。
+    """
+    xi = (request.headers.get("X-Installation-Id") or "").strip()
+    m = _INTERNAL_INSTALL_ID_RE.match(xi)
+    if not m:
+        return None
+    expected_uid = int(m.group(1))
+    from ..core.config import get_settings
+
+    s = get_settings()
+    try:
+        payload = jwt.decode(token, s.secret_key, algorithms=[ALGORITHM])
+        sub = payload.get("sub")
+        if sub is None:
+            return None
+        uid = int(sub)
+    except (JWTError, ValueError, TypeError):
+        return None
+    if uid != expected_uid:
+        return None
+    return _ServerUser(id=uid)
+
+
 async def get_current_user_for_local(
     request: Request,
     token: str = Depends(oauth2_scheme),
@@ -251,6 +280,9 @@ async def get_current_user_for_local(
                                     del _AUTH_ME_CACHE[k]
                 return _ServerUser(id=uid_int)
             if r.status_code in (401, 403):
+                su = _server_user_from_internal_lobster_jwt(request, token)
+                if su is not None:
+                    return su
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="无法验证凭证",

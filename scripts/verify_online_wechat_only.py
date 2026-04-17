@@ -20,7 +20,7 @@ def main():
             route.fulfill(
                 status=200,
                 content_type="application/json",
-                body='{"edition":"online","use_independent_auth":true,"use_own_wechat_login":true,"use_own_wechat_pay":true}',
+                body='{"edition":"online","use_independent_auth":true,"use_own_wechat_login":true,"use_fubei_pay":true}',
             )
 
         page.route("**/api/edition**", handle_edition)
