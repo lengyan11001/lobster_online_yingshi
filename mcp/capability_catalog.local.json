@@ -1,0 +1,64 @@
+{
+  "ecommerce.publish": {
+    "description": "电商商品发布：自动打开对应平台商家后台的商品创建页面，填写商品信息（标题、主图、详情图、价格等），但不自动提交，等待用户手动确认发布。",
+    "upstream": "local",
+    "upstream_tool": "invoke",
+    "enabled": true,
+    "is_default": false,
+    "unit_credits": 0,
+    "arg_schema": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": [
+            "open_product_form",
+            "list_shop_accounts"
+          ],
+          "description": "open_product_form=打开商品发布页面, list_shop_accounts=列出已配置的店铺账号"
+        },
+        "platform": {
+          "type": "string",
+          "enum": [
+            "douyin_shop",
+            "xiaohongshu_shop",
+            "alibaba1688",
+            "taobao",
+            "pinduoduo"
+          ],
+          "description": "目标电商平台"
+        },
+        "account_nickname": {
+          "type": "string",
+          "description": "店铺账号昵称"
+        },
+        "title": {
+          "type": "string",
+          "description": "商品标题"
+        },
+        "main_image_asset_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "主图素材 ID 列表"
+        },
+        "detail_image_asset_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "详情图素材 ID 列表"
+        },
+        "price": {
+          "type": "string",
+          "description": "商品价格（元）"
+        },
+        "category": {
+          "type": "string",
+          "description": "商品类目关键词"
+        }
+      }
+    }
+  }
+}

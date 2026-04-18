@@ -23,6 +23,7 @@ document.querySelectorAll('.pub-tab').forEach(function(tab) {
 });
 
 var PLATFORM_NAMES = { douyin: '抖音', bilibili: 'B站', xiaohongshu: '小红书', kuaishou: '快手', toutiao: '今日头条', douyin_shop: '抖店', xiaohongshu_shop: '小红书店铺', alibaba1688: '1688', taobao: '淘宝', pinduoduo: '拼多多' };
+var ECOMMERCE_PLATFORMS = { douyin_shop: true, xiaohongshu_shop: true, alibaba1688: true, taobao: true, pinduoduo: true };
 var STATUS_LABELS = { active: '已登录', pending: '待登录', error: '异常' };
 var STATUS_COLORS = { active: '#34d399', pending: '#fb923c', error: '#f87171' };
 
@@ -1065,21 +1066,22 @@ function _renderAccountList(accounts) {
   el.innerHTML = accounts.map(function(a) {
     var statusColor = STATUS_COLORS[a.status] || '#888';
     var statusLabel = STATUS_LABELS[a.status] || a.status;
-    var detailBtn = '<button type="button" class="btn btn-primary btn-sm" data-open-account-detail="' + a.id + '" title="进入账号详情（数据与定时任务）">进入详情</button>';
+    var isEcom = !!ECOMMERCE_PLATFORMS[a.platform];
+    var detailBtn = isEcom ? '' : '<button type="button" class="btn btn-primary btn-sm" data-open-account-detail="' + a.id + '" title="进入账号详情（数据与定时任务）">进入详情</button>';
     var openBtn = '<button type="button" class="btn btn-primary btn-sm" data-open-browser="' + a.id + '">打开浏览器</button>';
-    var runsBtn = '<button type="button" class="btn btn-ghost btn-sm" data-schedule-runs-acct="' + a.id + '" title="间隔定时任务的执行记录">执行记录</button>';
+    var runsBtn = isEcom ? '' : '<button type="button" class="btn btn-ghost btn-sm" data-schedule-runs-acct="' + a.id + '" title="间隔定时任务的执行记录">执行记录</button>';
     var publishBtn = '<button type="button" class="btn btn-primary btn-sm" data-publish-acct="' + a.id + '" data-publish-nick="' + escapeAttr(a.nickname) + '">发布素材</button>';
     var deleteBtn = '<button type="button" class="btn btn-ghost btn-sm" data-delete-id="' + a.id + '">删除</button>';
     var lastLogin = a.last_login ? '上次登录: ' + _formatDateTimeBeijing(a.last_login) : '';
     var lc = a.last_creator_sync;
     var syncLine = '';
-    if (lc && lc.fetched_at) {
+    if (!isEcom && lc && lc.fetched_at) {
       syncLine = '作品数据: ' + _formatDateTimeBeijing(lc.fetched_at) +
         (lc.sync_error ? ' (上次同步失败)' : ' · ' + (lc.item_count != null ? lc.item_count : 0) + ' 条');
     }
     var sch = a.creator_schedule;
     var schHint = '';
-    if (sch && sch.enabled) {
+    if (!isEcom && sch && sch.enabled) {
       var im = sch.interval_minutes != null ? sch.interval_minutes : 60;
       var nextL = sch.next_run_at ? (' · 下次≈' + escapeHtml(_formatDateTimeBeijing(sch.next_run_at))) : '';
       var kindL = _scheduleKindLabel(sch.schedule_kind);
@@ -1275,8 +1277,11 @@ function openAccountDetailPanel(accountId) {
   var dp = document.getElementById('accountDetailPanel');
   if (lp) lp.style.display = 'none';
   if (dp) dp.style.display = '';
+  var isEcom = !!ECOMMERCE_PLATFORMS[acct.platform];
   var tabData = document.getElementById('accountDetailTabData');
   var tabSch = document.getElementById('accountDetailTabSchedule');
+  var schTabBtn = document.querySelector('#accountDetailTabs [data-ad-tab="schedule"]');
+  if (schTabBtn) schTabBtn.style.display = isEcom ? 'none' : '';
   document.querySelectorAll('#accountDetailTabs .sys-tab').forEach(function(t) { t.classList.remove('active'); });
   var firstTab = document.querySelector('#accountDetailTabs [data-ad-tab="data"]');
   if (firstTab) firstTab.classList.add('active');

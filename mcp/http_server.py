@@ -3,12 +3,12 @@ HTTP MCP Server for 龙虾 (Lobster).
 Simplified from ai_test_platform: no admin checks, dynamic catalog reload.
 
 速推类能力（image.generate / video.generate / task.get_result / …）：
-用户积分的预扣、结算、退款 **只在** 认证中心宿主机上的 ``lobster_server/mcp/http_server.py`` →
+用户算力的预扣、结算、退款 **只在** 认证中心宿主机上的 ``lobster_server/mcp/http_server.py`` →
 ``invoke_capability`` **一处**编排（pre-deduct → 速推上游 → record-call/refund）。
 
 本机 MCP 只把请求转到 ``{AUTH_SERVER_BASE}/mcp-gateway``，**不对速推**调用 /capabilities/*。
 
-本机 ``upstream=local``：`media.edit` 免费，MCP 不预扣/不 record；`comfly.*` 积分由 **comfly/daihuo 后端**
+本机 ``upstream=local``：`media.edit` 免费，MCP 不预扣/不 record；`comfly.*` 算力由 **comfly/daihuo 后端**
 自行扣费，与速推无关，MCP 也不代为调认证中心计费接口。
 """
 
@@ -87,17 +87,17 @@ def _normalize_invoke_task_get_result_args(args: Dict[str, Any]) -> Dict[str, An
     if not isinstance(payload, dict):
         payload = {}
     pl = dict(payload)
-    tid = (pl.get("task_id") or "").strip()
+    tid = str(pl.get("task_id") or "").strip()
     if not tid:
         for k in ("taskId", "taskid", "TaskId"):
             v = pl.get(k)
-            if isinstance(v, str) and v.strip():
-                tid = v.strip()
+            if v is not None and str(v).strip():
+                tid = str(v).strip()
                 break
     if not tid:
         for k in ("task_id", "taskId", "taskid"):
             v = args.get(k)
-            if isinstance(v, str) and v.strip():
+            if v is not None and str(v).strip():
                 tid = v.strip()
                 break
     if not tid:
@@ -618,7 +618,7 @@ async def _mcp_poll_comfly_veo_after_submit(
     request: Optional[Request],
     initial_submit_data: Dict[str, Any],
 ) -> Dict[str, Any]:
-    tid = (task_id or "").strip()
+    tid = str(task_id or "").strip()
     if not tid:
         return initial_submit_data
     poll_body = {"payload": {"action": "poll_video", "task_id": tid}}
@@ -706,7 +706,7 @@ async def _mcp_poll_daihuo_pipeline_until_done(
 
 
 def _capabilities_api_base() -> str:
-    """积分预扣/退还等与认证中心一致；在线版优先直连 AUTH_SERVER_BASE，避免本机代理异常时误判为网络故障。"""
+    """算力预扣/退还等与认证中心一致；在线版优先直连 AUTH_SERVER_BASE，避免本机代理异常时误判为网络故障。"""
     auth = (os.environ.get("AUTH_SERVER_BASE") or "").strip().rstrip("/")
     if auth:
         return auth
@@ -804,6 +804,9 @@ def _tool_definitions(catalog: Dict[str, Dict[str, Any]], *, is_skill_store_admi
                 "capability_id 必须是 list_capabilities 中的能力 ID；"
                 "禁止将素材库 asset_id（十二位以上十六进制串，如入库后的成片 ID）当作能力 ID。"
                 "向抖音/头条/小红书发文请用 publish_content，asset_id 填素材 ID。"
+                "【默认模型】image.generate 用户未指定模型时 payload.model 必须填 \"fal-ai/flux-2/flash\"（不要自动选 jimeng）；用户明确指定 jimeng-4.0/jimeng-4.5 等时正常使用。"
+                "video.generate 用户未指定模型时 payload.model 填 \"sora2\"。"
+                "【爆款TVC】用户说TVC/带货视频时不走video.generate，改用 capability_id=\"comfly.veo.daihuo_pipeline\"。"
             ),
             "inputSchema": {
                 "type": "object",
@@ -815,7 +818,14 @@ def _tool_definitions(catalog: Dict[str, Dict[str, Any]], *, is_skill_store_admi
                     },
                     "payload": {
                         "type": "object",
-                        "description": "能力调用参数",
+                        "description": (
+                            "能力调用参数（按 capability_id 不同）。"
+                            "media.edit: 必须含 operation（overlay_text|trim|scale_pad|mute|mux_audio|image_to_video|extract_frame）+ asset_id；"
+                            "overlay_text 时必须含 text，可选 position(top/center/bottom)、font_size、font_color。"
+                            "image.generate: 含 prompt（英文）、model（用户未指定时默认 fal-ai/flux-2/flash；用户指定 jimeng-4.0/jimeng-4.5 等时照用）。"
+                            "video.generate: 含 prompt、model（默认 sora2）、duration（用户未指定时长时必须填 4，即 4 秒）。"
+                            "task.get_result: 含 task_id。"
+                        ),
                     },
                 },
                 "required": ["capability_id", "payload"],
@@ -1945,7 +1955,24 @@ async def _call_upstream_mcp_tool(
                     api_base, tool_name, arguments, token, lobster_capability_id
                 )
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    # 上游 tools/call 读超时：与 backend chat._exec_tool 对齐。默认 120s 会导致视频/长轮询
+    # 未完成即被代理/对端掐连接，httpx 报 RemoteProtocolError（Server disconnected…）。
+    _cap_for_timeout = (lobster_capability_id or "").strip()
+    if tool_name == "invoke_capability" and _cap_for_timeout == "video.generate":
+        _upstream_call_read_timeout = 40 * 60.0
+    elif tool_name == "invoke_capability" and _cap_for_timeout == "task.get_result":
+        _upstream_call_read_timeout = 35 * 60.0
+    elif tool_name == "invoke_capability" and _cap_for_timeout == "image.generate":
+        _upstream_call_read_timeout = 25 * 60.0
+    elif tool_name == "invoke_capability" and _cap_for_timeout == "comfly.veo.daihuo_pipeline":
+        _upstream_call_read_timeout = 130 * 60.0
+    elif tool_name == "invoke_capability" and _cap_for_timeout == "comfly.veo":
+        _upstream_call_read_timeout = 40 * 60.0
+    else:
+        _upstream_call_read_timeout = 120.0
+
+    _init_timeout = httpx.Timeout(connect=30.0, read=120.0, write=120.0, pool=30.0)
+    async with httpx.AsyncClient(timeout=_init_timeout) as client:
         init_body = {
             "jsonrpc": "2.0", "id": "init",
             "method": "initialize",
@@ -1991,6 +2018,14 @@ async def _call_upstream_mcp_tool(
         call_headers = dict(auth_headers)
         if session_id:
             call_headers["Mcp-Session-Id"] = session_id
+
+    _call_timeout = httpx.Timeout(
+        connect=45.0,
+        read=_upstream_call_read_timeout,
+        write=600.0,
+        pool=60.0,
+    )
+    async with httpx.AsyncClient(timeout=_call_timeout) as client:
         try:
             r = await client.post(server_url, json=call_body, headers=call_headers)
         except httpx.HTTPError as exc:
@@ -2475,12 +2510,19 @@ def _task_get_result_autosave_mark_done(key: str, asset_id: str) -> None:
             _TASK_GET_RESULT_AUTOSAVE_ASSET_ID.pop(old_k, None)
 
 
+_NO_AUTO_SAVE_CAPABILITIES = frozenset({
+    "sutui.search_models",
+    "sutui.guide",
+})
+
 async def _auto_save_generated_assets(
     upstream_resp: Any, capability_id: str, payload: Dict, token: Optional[str],
     request: Optional[Request] = None,
 ) -> List[Dict[str, str]]:
     """Extract media URLs from upstream result and auto-save as local assets."""
     if not token:
+        return []
+    if capability_id in _NO_AUTO_SAVE_CAPABILITIES:
         return []
 
     # payload 无 prompt 时只从上游 JSON 捞取；禁止用 capability_id 回填——否则 sutui.transfer_url、speak、guide
@@ -2588,6 +2630,8 @@ async def _auto_save_generated_assets(
     return saved
 
 
+
+
 async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], request: Optional[Request] = None) -> Tuple[List[Dict[str, Any]], bool]:
     try:
         catalog = _load_capability_catalog()
@@ -2693,13 +2737,14 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                         "不要对 invoke_capability 传入素材 ID 作为 capability_id。"
                     )
                 return [{"type": "text", "text": f"能力未找到: {capability_id}{hint}"}], True
+
             if not (token or "").strip():
                 return [
                     {
                         "type": "text",
                         "text": (
                             "调用能力需要登录：请在 MCP 请求中携带 Authorization: Bearer（用户 JWT），"
-                            "以便预扣积分与结算；匿名请求不会转发上游。"
+                            "以便预扣算力与结算；匿名请求不会转发上游。"
                         ),
                     }
                 ], True
@@ -2719,7 +2764,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                             "text": (
                                 "未配置速推上游。请设置 AUTH_SERVER_BASE（推荐：在线版 LOBSTER_EDITION=online 将使用 {AUTH}/mcp-gateway），"
                                 "或在 upstream_urls.json 中将 sutui 指向认证中心的 /mcp-gateway。"
-                                "本机不提供直连速推 MCP 的计费，积分预扣与结算仅在服务器 MCP 内完成。"
+                                "本机不提供直连速推 MCP 的计费，算力预扣与结算仅在服务器 MCP 内完成。"
                             ),
                         }
                     ], True
@@ -2774,7 +2819,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
             elif capability_id == "video.understand":
                 payload = _normalize_understand_payload(payload, media_key="video_urls", default_model="openrouter/router/video")
             elif capability_id == "task.get_result":
-                if not (payload.get("task_id") or "").strip():
+                if not str(payload.get("task_id") or "").strip():
                     return [
                         {
                             "type": "text",
@@ -2788,9 +2833,9 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                     ], True
 
             def _pre_deduct_insufficient_user_text(detail: Any) -> str:
-                base = "当前账户积分不足，无法调用该能力。请前往「充值」或积分页购买/充值后再试。"
+                base = "当前账户算力不足，无法调用该能力。请前往「充值」页购买/充值后再试。"
                 d = str(detail or "").strip()
-                if not d or d in ("积分不足", "余额不足"):
+                if not d or d in ("积分不足", "算力不足", "余额不足"):
                     return base
                 return f"{base}（{d}）"
 
@@ -2813,7 +2858,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                     )
                     if pre_r.status_code == 400:
                         raw = pre_r.json() if pre_r.content else {}
-                        detail = raw.get("detail", "无法预扣积分")
+                        detail = raw.get("detail", "无法预扣算力")
                         if isinstance(detail, list):
                             detail = str(detail)
                         return [{"type": "text", "text": str(detail)}], True
@@ -2824,7 +2869,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                         )
                         return [{"type": "text", "text": "无法完成预扣：未登录或登录已过期。请重新登录后再试。"}], True
                     if pre_r.status_code == 402:
-                        detail = (pre_r.json() or {}).get("detail", "积分不足")
+                        detail = (pre_r.json() or {}).get("detail", "算力不足")
                         logger.warning(
                             "[MCP invoke_capability] pre_deduct insufficient credits capability_id=%s detail=%s",
                             capability_id,
@@ -2869,7 +2914,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                             {
                                 "type": "text",
                                 "text": (
-                                    f"预扣积分暂时失败（认证中心返回 HTTP {pre_r.status_code}）。"
+                                    f"预扣算力暂时失败（认证中心返回 HTTP {pre_r.status_code}）。"
                                     "请稍后重试；若持续出现请联系支持。"
                                 ),
                             }
@@ -2907,7 +2952,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                         return [
                             {
                                 "type": "text",
-                                "text": "预扣积分返回异常（无法解析认证中心响应）。请稍后重试。",
+                                "text": "预扣算力返回异常（无法解析认证中心响应）。请稍后重试。",
                             }
                         ], True
                 except Exception as e:
@@ -2920,7 +2965,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                         {
                             "type": "text",
                             "text": (
-                                "无法连接认证中心完成预扣积分（网络或超时）。"
+                                "无法连接认证中心完成预扣算力（网络或超时）。"
                                 f" 详情：{type(e).__name__}: {str(e)[:200]}"
                             ),
                         }
@@ -3048,6 +3093,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                     else:
                         req_path = "/api/ecommerce-publish/open-product-form"
                         timeout_s = 120.0
+                        req_json = {k: v for k, v in _p.items() if k != "action"}
                     logger.info(
                         "[MCP ecommerce.publish] invoke action=%s platform=%s nickname=%s base_url=%s",
                         ec_action,
@@ -3184,7 +3230,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
                                     }
                     if capability_id == "comfly.veo" and isinstance(data, dict) and data.get("ok", True):
                         if (data.get("action") or "").strip() == "submit_video":
-                            tid_poll = (data.get("task_id") or "").strip()
+                            tid_poll = str(data.get("task_id") or "").strip()
                             if tid_poll:
                                 logger.info(
                                     "[MCP comfly.veo] submit_video 成功，开始阻塞轮询 poll_video task_id=%s",
@@ -3753,7 +3799,7 @@ async def _call_tool(name: str, args: Dict[str, Any], token: Optional[str], requ
             }
             if "ai_publish_copy" in args and args.get("ai_publish_copy") is not None:
                 body["ai_publish_copy"] = bool(args.get("ai_publish_copy"))
-            async with httpx.AsyncClient(timeout=180.0) as client:
+            async with httpx.AsyncClient(timeout=280.0) as client:
                 r = await client.post(f"{BASE_URL}/api/publish", json=body, headers=_backend_headers(token, request))
             data = r.json() if r.content else {}
             if not isinstance(data, dict):

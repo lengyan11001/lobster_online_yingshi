@@ -111,10 +111,9 @@ _SAFE_FFMPEG_EXPR = re.compile(r"^[a-zA-Z0-9_+\-*/(). \t]{1,800}$")
 def _reject_unknown_overlay_keys(payload: Dict[str, Any]) -> None:
     extra = set(payload.keys()) - _OVERLAY_TEXT_PAYLOAD_KEYS
     if extra:
-        raise ValueError(
-            "overlay_text 不支持未知字段: "
-            f"{sorted(extra)}。允许字段: {sorted(_OVERLAY_TEXT_PAYLOAD_KEYS)}"
-        )
+        logger.warning("overlay_text 忽略未知字段: %s", sorted(extra))
+        for k in extra:
+            payload.pop(k, None)
 
 
 def _parse_bool(v: Any, field: str) -> bool:
@@ -771,7 +770,7 @@ def run_operation(db: Session, user_id: int, payload: Dict[str, Any]) -> Dict[st
         raise ValueError("payload 必须是对象")
     op = (payload.get("operation") or "").strip()
     if not op:
-        raise ValueError("缺少 operation")
+        raise ValueError(f"缺少 operation，必须指定操作类型，允许: {sorted(_VALID_OPS)}")
     if op not in _VALID_OPS:
         raise ValueError(f"不支持的 operation: {op}，允许: {sorted(_VALID_OPS)}")
 

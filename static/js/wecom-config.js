@@ -79,6 +79,14 @@
             '<div class="card-label">应用</div>' +
             '<div class="card-value">' + escapeHtml(name) + '</div>' +
             '<div class="card-desc">CorpID: ' + escapeHtml(corp) + ' · Secret: <span style="' + secretColor + '">' + hasSecret + '</span> · 知识库: ' + hasKnowledge + '</div>' +
+            '<div style="display:flex;align-items:center;gap:0.5rem;margin:0.4rem 0;">' +
+              '<span style="font-size:0.82rem;">自动AI回复：</span>' +
+              '<label class="wecom-toggle-wrap" style="position:relative;display:inline-block;width:40px;height:22px;cursor:pointer;">' +
+                '<input type="checkbox" class="wecom-auto-reply-toggle" data-id="' + escapeAttr(String(c.id)) + '"' + (c.auto_reply_enabled ? ' checked' : '') + ' style="opacity:0;width:0;height:0;">' +
+                '<span style="position:absolute;inset:0;border-radius:11px;transition:background .2s;background:' + (c.auto_reply_enabled ? '#4ade80' : 'rgba(255,255,255,0.15)') + ';"></span>' +
+                '<span style="position:absolute;top:2px;left:' + (c.auto_reply_enabled ? '20px' : '2px') + ';width:18px;height:18px;border-radius:50%;background:#fff;transition:left .2s;"></span>' +
+              '</label>' +
+            '</div>' +
             '<div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.3rem;">回调 URL（填入企微后台）</div>' +
             '<div style="display:flex;align-items:center;gap:0.5rem;margin:0.2rem 0 0.5rem 0;">' +
               '<pre class="config-block-item" style="font-size:0.75rem;margin:0;padding:0.4rem;background:rgba(0,0,0,0.2);border-radius:4px;overflow-x:auto;flex:1;">' + escapeHtml(displayUrl) + '</pre>' +
@@ -94,8 +102,29 @@
         listEl.querySelectorAll('.wecom-config-card').forEach(function(card) {
           var id = card.getAttribute('data-config-id');
           card.addEventListener('click', function(e) {
-            if (e.target.closest('.card-actions')) return;
+            if (e.target.closest('.card-actions') || e.target.closest('.wecom-toggle-wrap')) return;
             openEdit(parseInt(id, 10));
+          });
+        });
+        listEl.querySelectorAll('.wecom-auto-reply-toggle').forEach(function(cb) {
+          cb.addEventListener('click', function(e) { e.stopPropagation(); });
+          cb.addEventListener('change', function(e) {
+            e.stopPropagation();
+            var configId = parseInt(cb.getAttribute('data-id'), 10);
+            var base = localApiBase();
+            fetch(base + '/api/wecom/configs/' + configId + '/auto-reply', {
+              method: 'PUT',
+              headers: typeof authHeaders === 'function' ? authHeaders() : {}
+            }).then(function(r) { return r.json(); }).then(function(d) {
+              if (d && d.auto_reply_enabled != null) {
+                var wrap = cb.closest('.wecom-toggle-wrap');
+                var track = wrap && wrap.querySelectorAll('span')[0];
+                var thumb = wrap && wrap.querySelectorAll('span')[1];
+                if (track) track.style.background = d.auto_reply_enabled ? '#4ade80' : 'rgba(255,255,255,0.15)';
+                if (thumb) thumb.style.left = d.auto_reply_enabled ? '20px' : '2px';
+                cb.checked = d.auto_reply_enabled;
+              }
+            }).catch(function() { cb.checked = !cb.checked; });
           });
         });
         listEl.querySelectorAll('.wecom-copy-url').forEach(function(btn) {

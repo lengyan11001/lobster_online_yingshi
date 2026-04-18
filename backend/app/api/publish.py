@@ -1,9 +1,10 @@
 """Publishing accounts and task management."""
+import asyncio
 import logging
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import httpx
 
@@ -28,6 +29,19 @@ from ..models import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_account_publish_locks: Dict[int, asyncio.Lock] = {}
+_account_locks_meta_lock = asyncio.Lock()
+
+
+async def _get_account_publish_lock(account_id: int) -> asyncio.Lock:
+    """Per-account lock preventing concurrent Playwright publishes to the same browser context."""
+    async with _account_locks_meta_lock:
+        lock = _account_publish_locks.get(account_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            _account_publish_locks[account_id] = lock
+        return lock
 
 _BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
 BROWSER_DATA_DIR = _BASE_DIR / "browser_data"
@@ -69,6 +83,12 @@ def _query_publish_account_by_nickname(
     return q.first()
 
 
+_PLATFORM_NICK_PREFIXES = [
+    "抖音", "douyin", "小红书", "xiaohongshu", "xhs",
+    "头条", "今日头条", "toutiao", "抖店", "抖音商城", "douyin_shop",
+]
+
+
 def _resolve_publish_account_for_request(
     db: Session,
     user_id: int,
@@ -78,10 +98,26 @@ def _resolve_publish_account_for_request(
     """
     用户常以「2」「6」指昵称；若误把该数字填在 account_id 里，主键无匹配时按昵称再查一次。
     若同时传 account_nickname 与 account_id，优先按昵称解析（与单发时一致）。
+    LLM 常在昵称前加平台名（如"抖音123"），精确匹配失败后自动剥离平台前缀重试。
     """
     nick = (account_nickname or "").strip()
     if nick:
-        return _query_publish_account_by_nickname(db, user_id, nick)
+        acct = _query_publish_account_by_nickname(db, user_id, nick)
+        if acct is not None:
+            return acct
+        nick_lower = nick.lower()
+        for prefix in _PLATFORM_NICK_PREFIXES:
+            if nick_lower.startswith(prefix.lower()) and len(nick) > len(prefix):
+                stripped = nick[len(prefix):].strip()
+                if stripped:
+                    acct = _query_publish_account_by_nickname(db, user_id, stripped)
+                    if acct is not None:
+                        logger.info(
+                            "[PUBLISH-API] 昵称「%s」精确无匹配，剥离平台前缀「%s」→「%s」命中 id=%s",
+                            nick, prefix, stripped, acct.id,
+                        )
+                        return acct
+        return None
     if account_id is not None:
         acct = (
             db.query(PublishAccount)
@@ -904,6 +940,22 @@ async def create_publish_task(
         task.id,
     )
 
+    publish_lock = await _get_account_publish_lock(acct.id)
+    if publish_lock.locked():
+        logger.warning(
+            "[PUBLISH-API] 账号 %s(%s) 已有发布任务正在执行，拒绝并发请求",
+            acct.nickname, acct.id,
+        )
+        task.status = "failed"
+        task.error = "该账号当前有发布任务正在执行，请等待完成后再试"
+        task.finished_at = datetime.utcnow()
+        db.commit()
+        return {
+            "task_id": task.id,
+            "status": task.status,
+            "error": task.error,
+        }
+
     try:
         from publisher.browser_pool import run_publish_task
         from .assets import ASSETS_DIR
@@ -997,17 +1049,18 @@ async def create_publish_task(
         logger.info("[PUBLISH-API] calling run_publish_task: platform=%s profile=%s title=%s",
                      acct.platform, acct.browser_profile, eff_title[:40])
         bopts = browser_options_from_publish_meta(acct.meta)
-        result = await run_publish_task(
-            profile_dir=acct.browser_profile,
-            platform=acct.platform,
-            file_path=file_path,
-            title=eff_title,
-            description=eff_desc,
-            tags=eff_tags,
-            options=publish_opts,
-            cover_path=cover_path,
-            browser_options=bopts,
-        )
+        async with publish_lock:
+            result = await run_publish_task(
+                profile_dir=acct.browser_profile,
+                platform=acct.platform,
+                file_path=file_path,
+                title=eff_title,
+                description=eff_desc,
+                tags=eff_tags,
+                options=publish_opts,
+                cover_path=cover_path,
+                browser_options=bopts,
+            )
         for p in (temp_video, temp_cover):
             if p and Path(p).exists():
                 try:

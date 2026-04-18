@@ -31,6 +31,7 @@ from ..models import (
     User,
     WecomConfig,
     WecomMessage,
+    WecomScheduledMessage,
 )
 
 logger = logging.getLogger(__name__)
@@ -232,6 +233,7 @@ def list_wecom_configs(
             "product_id": r.product_id,
             "enterprise_name": ent_name,
             "product_name": prod_name,
+            "auto_reply_enabled": bool(getattr(r, 'auto_reply_enabled', False)),
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
         configs_out.append(item)
@@ -348,6 +350,22 @@ def update_wecom_config(
     db.refresh(row)
     _sync_config_to_cloud(row)
     return {"id": row.id, "name": row.name, "callback_path": row.callback_path}
+
+
+@router.put("/api/wecom/configs/{config_id:int}/auto-reply", summary="切换自动回复开关")
+def toggle_auto_reply(
+    config_id: int,
+    current_user = Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+):
+    row = db.query(WecomConfig).filter(WecomConfig.id == config_id, WecomConfig.user_id == current_user.id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="配置不存在")
+    row.auto_reply_enabled = not row.auto_reply_enabled
+    db.commit()
+    db.refresh(row)
+    logger.info("[WeCom] config_id=%s auto_reply_enabled=%s", config_id, row.auto_reply_enabled)
+    return {"id": row.id, "auto_reply_enabled": row.auto_reply_enabled}
 
 
 @router.delete("/api/wecom/configs/{config_id:int}", summary="删除企业微信配置")
@@ -883,6 +901,42 @@ def list_sessions(
     return {"items": sessions}
 
 
+_PURCHASE_INTENT_KEYWORDS = ["我想购买必火盒子"]
+_PURCHASE_NOTIFY_USERS = "LiuXin|HeHao@BiHuoZhiNeng"
+
+
+async def _check_purchase_intent_keyword(
+    cfg,
+    from_user: str,
+    content: str,
+    server_base: str,
+    headers,
+):
+    text = (content or "").strip()
+    if not any(kw in text for kw in _PURCHASE_INTENT_KEYWORDS):
+        return
+    agent_id = cfg.agent_id
+    corp_id = (cfg.corp_id or "").strip()
+    if not agent_id or not corp_id:
+        logger.warning("[WeCom] 购买意向检测命中但缺少 agent_id/corp_id, config_id=%s", cfg.id)
+        return
+    notify_text = f"有意向客户，用户ID：{from_user}"
+    logger.info("[WeCom] 购买意向关键词匹配: from_user=%s config_id=%s -> 通知 %s", from_user, cfg.id, _PURCHASE_NOTIFY_USERS)
+    try:
+        body = {
+            "callback_path": cfg.callback_path,
+            "touser": _PURCHASE_NOTIFY_USERS,
+            "msgtype": "text",
+            "text": {"content": notify_text},
+        }
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(f"{server_base}/api/wecom/proxy/send-message", json=body, headers=headers)
+            logger.info("[WeCom] 购买意向通知发送 status=%s", r.status_code)
+    except Exception as e:
+        logger.warning("[WeCom] 购买意向通知失败: %s", e)
+
+
+
 # ---------------------------------------------------------------------------
 # 轮询处理：从云端拉取待处理消息，生成客服回复并提交（供后台每2s调用；也可由前端“拉取”仅刷新不触发）
 # ---------------------------------------------------------------------------
@@ -951,6 +1005,7 @@ async def _do_poll_and_reply(user_id: int, db: Session) -> Dict[str, Any]:
             db.refresh(customer)
         db.add(WecomMessage(wecom_config_id=cfg.id, customer_id=customer.id, direction="in", content=content_stored, msg_type=msg_type_in, external_user_id=from_user, to_user=to_user))
         db.commit()
+        await _check_purchase_intent_keyword(cfg, from_user, content_raw, base, headers)
         history = []
         recent = db.query(WecomMessage).filter(WecomMessage.wecom_config_id == cfg.id, WecomMessage.external_user_id == from_user).order_by(WecomMessage.created_at.desc()).limit(10).all()
         for m in reversed(recent):
@@ -998,7 +1053,7 @@ async def wecom_poll_and_reply(
 
 
 async def wecom_poll_loop():
-    """后台每 2 秒拉取云端待处理消息并 AI 回复，无需用户操作。"""
+    """后台每 2 秒拉取云端待处理消息并 AI 回复（仅 auto_reply_enabled 的配置）。"""
     import asyncio
     from ..db import SessionLocal
     while True:
@@ -1007,8 +1062,14 @@ async def wecom_poll_loop():
             continue
         db = SessionLocal()
         try:
-            user_ids = [r[0] for r in db.query(WecomConfig.user_id).distinct().all()]
-            for uid in user_ids:
+            enabled_uids = [
+                r[0] for r in
+                db.query(WecomConfig.user_id)
+                .filter(WecomConfig.auto_reply_enabled == True)
+                .distinct()
+                .all()
+            ]
+            for uid in enabled_uids:
                 try:
                     await _do_poll_and_reply(uid, db)
                 except Exception as e:
@@ -1421,3 +1482,169 @@ async def upload_materials(
         "updated_products": updated_prod,
         "errors": errors,
     }
+
+
+# ─── 定时消息 ───────────────────────────────────────────────
+
+class ScheduledMessageCreate(BaseModel):
+    wecom_config_id: int
+    send_type: str = "user"
+    to_user: Optional[str] = None
+    to_party: Optional[str] = None
+    chatid: Optional[str] = None
+    msg_type: str = "text"
+    content: str
+    weekdays: str
+    send_time: str
+
+
+@router.get("/api/wecom/scheduled-messages", summary="列出定时消息")
+async def list_scheduled_messages(
+    current_user=Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+):
+    items = (
+        db.query(WecomScheduledMessage)
+        .filter(WecomScheduledMessage.user_id == current_user.id)
+        .order_by(WecomScheduledMessage.created_at.desc())
+        .all()
+    )
+    return {
+        "items": [
+            {
+                "id": m.id,
+                "wecom_config_id": m.wecom_config_id,
+                "send_type": m.send_type,
+                "to_user": m.to_user,
+                "to_party": m.to_party,
+                "chatid": m.chatid,
+                "msg_type": m.msg_type,
+                "content": m.content[:80],
+                "weekdays": m.weekdays,
+                "send_time": m.send_time,
+                "enabled": m.enabled,
+                "last_sent_at": str(m.last_sent_at) if m.last_sent_at else None,
+                "created_at": str(m.created_at),
+            }
+            for m in items
+        ]
+    }
+
+
+@router.post("/api/wecom/scheduled-messages", summary="创建定时消息")
+async def create_scheduled_message(
+    body: ScheduledMessageCreate,
+    current_user=Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+):
+    if not body.content.strip():
+        raise HTTPException(400, "消息内容不能为空")
+    if not body.weekdays.strip():
+        raise HTTPException(400, "请选择至少一个星期几")
+    if not body.send_time.strip():
+        raise HTTPException(400, "请设置发送时间")
+    m = WecomScheduledMessage(
+        user_id=current_user.id,
+        wecom_config_id=body.wecom_config_id,
+        send_type=body.send_type,
+        to_user=body.to_user,
+        to_party=body.to_party,
+        chatid=body.chatid,
+        msg_type=body.msg_type,
+        content=body.content.strip(),
+        weekdays=body.weekdays.strip(),
+        send_time=body.send_time.strip(),
+        enabled=True,
+    )
+    db.add(m)
+    db.commit()
+    db.refresh(m)
+    return {"id": m.id, "ok": True}
+
+
+@router.delete("/api/wecom/scheduled-messages/{msg_id}", summary="删除定时消息")
+async def delete_scheduled_message(
+    msg_id: int,
+    current_user=Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+):
+    m = (
+        db.query(WecomScheduledMessage)
+        .filter(WecomScheduledMessage.id == msg_id, WecomScheduledMessage.user_id == current_user.id)
+        .first()
+    )
+    if not m:
+        raise HTTPException(404, "定时消息不存在")
+    db.delete(m)
+    db.commit()
+    return {"ok": True}
+
+
+@router.put("/api/wecom/scheduled-messages/{msg_id}/toggle", summary="启用/禁用定时消息")
+async def toggle_scheduled_message(
+    msg_id: int,
+    current_user=Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+):
+    m = (
+        db.query(WecomScheduledMessage)
+        .filter(WecomScheduledMessage.id == msg_id, WecomScheduledMessage.user_id == current_user.id)
+        .first()
+    )
+    if not m:
+        raise HTTPException(404, "定时消息不存在")
+    m.enabled = not m.enabled
+    db.commit()
+    return {"ok": True, "enabled": m.enabled}
+
+
+async def _execute_scheduled_messages():
+    """由后台定时任务调用：检查当前分钟是否有待发送的定时消息。"""
+    from datetime import datetime as dt
+    from ..db import SessionLocal
+
+    now = dt.now()
+    weekday = now.isoweekday()
+    current_time = now.strftime("%H:%M")
+    db = SessionLocal()
+    try:
+        items = (
+            db.query(WecomScheduledMessage)
+            .filter(WecomScheduledMessage.enabled == True)
+            .all()
+        )
+        for m in items:
+            days = [int(d.strip()) for d in m.weekdays.split(",") if d.strip().isdigit()]
+            if weekday not in days:
+                continue
+            if m.send_time.strip() != current_time:
+                continue
+            if m.last_sent_at and m.last_sent_at.strftime("%Y-%m-%d %H:%M") == now.strftime("%Y-%m-%d %H:%M"):
+                continue
+            try:
+                cfg = db.query(WecomConfig).filter(WecomConfig.id == m.wecom_config_id).first()
+                if not cfg:
+                    continue
+                cb_path = cfg.callback_path
+                if m.send_type == "group" and m.chatid:
+                    await _cloud_proxy_post("/api/wecom/proxy/group-chat/send", {
+                        "callback_path": cb_path,
+                        "chatid": m.chatid,
+                        "msg_type": m.msg_type,
+                        "content": m.content,
+                    })
+                else:
+                    await _cloud_proxy_post("/api/wecom/proxy/send-message", {
+                        "callback_path": cb_path,
+                        "to_user": m.to_user if m.send_type == "user" else None,
+                        "to_party": m.to_party if m.send_type == "party" else None,
+                        "msg_type": m.msg_type,
+                        "content": m.content,
+                    })
+                m.last_sent_at = now
+                db.commit()
+                logger.info("[WECOM] 定时消息 id=%s 已发送", m.id)
+            except Exception as e:
+                logger.warning("[WECOM] 定时消息 id=%s 发送失败: %s", m.id, e)
+    finally:
+        db.close()

@@ -34,7 +34,7 @@
     },
     sys_config: {
       title: '系统配置',
-      html: '<p><strong>模型配置</strong>：默认对话模型与各厂商 API Key；在线版能力可能由服务端统一提供，部分项只读或无需填写。</p><p><strong>自定义配置</strong>：导入键值/JSON 供本机后端使用。</p><p>下方「清除本机个人配置」仅影响当前账号在本机的缓存数据，不会删云端积分。</p>'
+      html: '<p><strong>模型配置</strong>：默认对话模型与各厂商 API Key；在线版能力可能由服务端统一提供，部分项只读或无需填写。</p><p><strong>自定义配置</strong>：导入键值/JSON 供本机后端使用。</p><p>下方「清除本机个人配置」仅影响当前账号在本机的缓存数据，不会删云端算力。</p>'
     },
     sys_save_oc: {
       title: '保存 / Gateway',
@@ -46,7 +46,7 @@
     },
     sys_clear_local: {
       title: '清除本机个人配置',
-      html: '<p>清除<strong>本机</strong>：OpenClaw 目录下各厂商 API Key（<code>openclaw/.env</code>，与云端无关）；若本机库有用户行则再清速推 Token、首选模型、算力账号；并清<strong>浏览器</strong>对话与 <code>lobster_*_base</code> 调试项。</p><p>不删云端积分与素材，不退出登录；自定义配置块请用上方 Tab 单独删。</p><p>需已登录（仅用于确认操作者，不在远端存你的 Key）。</p>'
+      html: '<p>清除<strong>本机</strong>：OpenClaw 目录下各厂商 API Key（<code>openclaw/.env</code>，与云端无关）；若本机库有用户行则再清速推 Token、首选模型、算力账号；并清<strong>浏览器</strong>对话与 <code>lobster_*_base</code> 调试项。</p><p>不删云端算力与素材，不退出登录；自定义配置块请用上方 Tab 单独删。</p><p>需已登录（仅用于确认操作者，不在远端存你的 Key）。</p>'
     },
     logs: {
       title: '系统日志',

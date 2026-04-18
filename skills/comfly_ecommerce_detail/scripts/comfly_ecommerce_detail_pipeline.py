@@ -127,7 +127,7 @@ class PipelineExecutionError(PipelineError):
         self.data = data or {}
 
 
-MODEL_UNIT_COSTS: Dict[str, int] = {"analysis": 1, "image": 2}
+MODEL_UNIT_COSTS: Dict[str, int] = {"analysis": 10, "image": 40}
 SUITE_EXPORT_PRESET = "shangjia_taotu_v1"
 SUITE_EXPORT_DIRNAME = "上架套图"
 SUITE_EXPORT_CATEGORY_DIRS: Dict[str, str] = {
@@ -286,6 +286,26 @@ def _retry(action: str, attempts: int, delay: int, logger: RunLogger, fn):
     raise PipelineError(f"{action} failed after {attempts} attempt(s): {last}")
 
 
+def _usage_billing_summary(usage: Dict[str, Any]) -> Dict[str, Any]:
+    summary = usage.get("summary") if isinstance(usage.get("summary"), dict) else {}
+    analysis_count = int(summary.get("analysis_count") or 0)
+    image_count = int(summary.get("image_count") or 0)
+    total_points = int(summary.get("total_points") or 0)
+    analysis_points_per_call = int(MODEL_UNIT_COSTS.get("analysis", 0))
+    image_points_per_success = int(MODEL_UNIT_COSTS.get("image", 0))
+    return {
+        "analysis_points_per_call": analysis_points_per_call,
+        "image_points_per_success": image_points_per_success,
+        "analysis_count": analysis_count,
+        "image_count": image_count,
+        "analysis_points": analysis_count * analysis_points_per_call,
+        "image_points": image_count * image_points_per_success,
+        "total_points": total_points,
+        "point_value_cny": 0.01,
+        "total_cost_cny": round(total_points * 0.01, 2),
+    }
+
+
 def _error_text(exc: Any) -> str:
     return str(exc or "").strip()
 
@@ -360,12 +380,14 @@ def _build_partial_failure_payload(
     config: Optional[PipelineConfig] = None,
     partial_output: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    usage = logger.usage_snapshot()
     payload: Dict[str, Any] = {
         "run_dir": str(logger.run_dir),
         "detail_dir": str(logger.detail_dir),
         "manifest_path": str(logger.run_dir / "manifest.json"),
         "result_path": str(logger.run_dir / "99_result.json"),
-        "usage": logger.usage_snapshot(),
+        "usage": usage,
+        "billing_summary": _usage_billing_summary(usage),
         "error": str(exc),
     }
     if config is not None:
@@ -753,6 +775,8 @@ def _product_identity_guardrails(analysis: Dict[str, Any]) -> List[str]:
         "Do not redesign, beautify, simplify, optimize, reinterpret, merge, split, extend, or invent a new version of the product",
         "Do not add, remove, rearrange, enlarge, shrink, or replace visible structural parts, openings, panels, handles, accessories, hardware, textures, seams, prints, or decorative features from the reference",
         "Keep the same silhouette, proportions, construction logic, material boundaries, color placement, and relative position of all visible parts",
+        "Preserve the exact visible product colors, undertones, wood grain, material finish, and contrast from the reference; do not bleach, tint, warm up, cool down, or recolor the product",
+        "Keep the product close to the visual center and safe area of the canvas with balanced breathing room; do not push the main product body against the edges unless the composition explicitly requires it",
         "If any product detail is unclear, stay conservative and preserve what is visible rather than inventing new details",
     ]
 
@@ -1502,7 +1526,7 @@ def _compose_cover_background_prompt(page: Dict[str, Any], analysis: Dict[str, A
         "Create a cinematic campaign hero scene rather than a standard ecommerce product page",
         "Show the product in a believable aspirational usage scenario with storytelling, atmosphere, depth, and strong visual focus",
         "Prefer a fashion advertising composition, urban winter lifestyle scene, editorial campaign photography, premium magazine poster mood, natural environment context, confident hero framing",
-        "No collage, no split panels, no infographic layout, no white seamless studio background, no empty product-only center composition, no flat lay, no mannequin, no ghost mannequin",
+        "No collage, no split panels, no infographic layout, no white seamless studio background, no empty or awkwardly floating isolated-product composition, no flat lay, no mannequin, no ghost mannequin",
         "No text, no typography, no watermark, no logo, no UI, no sticker, no subtitles",
     ]
     prompt_parts.extend(_product_identity_guardrails(analysis))
@@ -1534,6 +1558,7 @@ def _compose_white_bg_prompt(analysis: Dict[str, Any]) -> str:
         f"Keep these product cues consistent: {points}",
         "Show only the sellable product itself on a pure white background",
         "Centered full-product composition suitable for ecommerce listing white-background image",
+        "Match the exact visible product colors from the reference, especially cream white, wood tones, metal tones, fabric tones, and finish sheen",
         "No room scene, no furniture scene, no props, no packaging, no extra objects, no people, no animals",
         "No text, no logo, no watermark, no infographic, no labels, no measurement lines, no collage, no UI",
         "Avoid visible cast shadows and avoid gray studio floor; keep the surrounding background clean white",
@@ -1563,6 +1588,7 @@ def _compose_black_bg_prompt(analysis: Dict[str, Any]) -> str:
         f"Keep these product cues consistent: {points}",
         "Show only the sellable product itself on a pure solid black background #000000",
         "Centered full-product composition suitable for alpha extraction and ecommerce asset recovery",
+        "Match the exact visible product colors from the reference and keep the product body identical to the white-background version",
         "No room scene, no furniture scene, no props, no packaging, no extra objects, no people, no animals",
         "No text, no logo, no watermark, no infographic, no labels, no measurement lines, no collage, no UI",
         "Keep the framing, scale, pose, crop, perspective, and product edges aligned as closely as possible to the white-background version",
@@ -1591,6 +1617,21 @@ def _normalize_generated_black_bg(image: Image.Image, width: int = 800, height: 
     canvas = Image.new("RGBA", (width, height), (0, 0, 0, 255))
     canvas.paste(fitted, (0, 0), fitted)
     return canvas.convert("RGB")
+
+
+def _normalize_reference_cutout(
+    image: Image.Image,
+    *,
+    width: int = 800,
+    height: int = 800,
+    background: Optional[tuple[int, int, int, int]] = None,
+) -> Image.Image:
+    fitted = _fit_contain(image.convert("RGBA"), width, height)
+    if background is None:
+        return fitted
+    canvas = Image.new("RGBA", (width, height), background)
+    canvas.alpha_composite(fitted)
+    return canvas
 
 
 def _derive_transparent_from_white_black_bg(white_image: Image.Image, black_image: Image.Image) -> Image.Image:
@@ -1901,12 +1942,6 @@ def _render_page(
 
     slot_text = str(page.get("slot") or "").upper()
     is_cover = slot_text == "COVER"
-    display_index = page.get("display_index")
-    if not is_cover and display_index is not None:
-        draw.text((margin, _scale_int(52, scale, 18)), f"{int(display_index):02d}", font=number_font, fill=accent)
-    slot_bbox = draw.textbbox((0, 0), slot_text, font=slot_font)
-    if not is_cover:
-        draw.text((width - margin - (slot_bbox[2] - slot_bbox[0]), _scale_int(78, scale, 20)), slot_text, font=slot_font, fill="#9b907f")
 
     if slot_name == "spec_table":
         title_bottom = _draw_multiline(
@@ -1974,9 +2009,9 @@ def _render_page(
         return canvas
 
     if is_cover:
-        title_font = _font(_scale_int(82, scale, 28), bold=True)
-        subtitle_font = _font(_scale_int(36, scale, 16))
-        highlight_font = _font(_scale_int(28, scale, 14), bold=True)
+        title_font = _font(_scale_int(96, scale, 34), bold=True)
+        highlight_font = _font(_scale_int(34, scale, 16), bold=True)
+        footer_font = _font(_scale_int(34, scale, 16), bold=True)
 
         hero = _fit_cover(background, width, height)
         canvas.paste(hero, (0, 0))
@@ -1988,18 +2023,7 @@ def _render_page(
         overlay_draw.rectangle((0, height - _scale_int(520, scale, 240), width, height), fill=(14, 10, 8, 108))
         canvas.paste(overlay, (0, 0), overlay)
 
-        chip_text = str(page.get("badge") or "").strip()
-        chip_y = _scale_int(84, scale, 28)
-        if chip_text:
-            chip_bbox = draw.textbbox((0, 0), chip_text, font=badge_font)
-            chip_w = chip_bbox[2] - chip_bbox[0] + _scale_int(52, scale, 24)
-            chip_h = chip_bbox[3] - chip_bbox[1] + _scale_int(22, scale, 12)
-            chip_x = margin
-            draw.rounded_rectangle((chip_x, chip_y, chip_x + chip_w, chip_y + chip_h), radius=_scale_int(26, scale, 12), fill=accent)
-            draw.text((chip_x + _scale_int(26, scale, 12), chip_y + _scale_int(11, scale, 6)), chip_text, font=badge_font, fill="#ffffff")
-            title_y = chip_y + chip_h + _scale_int(28, scale, 12)
-        else:
-            title_y = _scale_int(96, scale, 32)
+        title_y = _scale_int(110, scale, 42)
 
         title_bottom = _draw_multiline(
             draw,
@@ -2008,55 +2032,47 @@ def _render_page(
             title_font,
             "#fffaf4",
             width - margin * 2 - _scale_int(40, scale, 12),
-            3,
+            2,
             _scale_int(14, scale, 6),
         )
-        subtitle_bottom = _draw_multiline(
-            draw,
-            (margin, title_bottom + _scale_int(14, scale, 6)),
-            str(page.get("subtitle") or ""),
-            subtitle_font,
-            "#f2e8dd",
-            width - margin * 2 - _scale_int(40, scale, 12),
-            2,
-            _scale_int(10, scale, 4),
-        )
+        subtitle_bottom = title_bottom
 
         footer_text = str(page.get("footer") or "").strip()
         if footer_text:
             footer_bbox = draw.textbbox((0, 0), footer_text, font=footer_font)
-            footer_w = min(width - margin * 2, footer_bbox[2] - footer_bbox[0] + _scale_int(84, scale, 32))
-            footer_y = max(subtitle_bottom + _scale_int(30, scale, 12), _scale_int(360, scale, 140))
-            draw.rounded_rectangle((margin, footer_y, margin + footer_w, footer_y + _scale_int(62, scale, 26)), radius=_scale_int(30, scale, 12), fill=(255, 245, 235))
-            draw.text((margin + _scale_int(34, scale, 12), footer_y + _scale_int(13, scale, 6)), footer_text, font=footer_font, fill=accent)
+            footer_w = min(width - margin * 2, footer_bbox[2] - footer_bbox[0] + _scale_int(96, scale, 40))
+            footer_y = max(subtitle_bottom + _scale_int(32, scale, 14), _scale_int(360, scale, 140))
+            footer_h = _scale_int(76, scale, 34)
+            draw.rounded_rectangle((margin, footer_y, margin + footer_w, footer_y + footer_h), radius=_scale_int(34, scale, 14), fill=(255, 245, 235))
+            draw.text((margin + _scale_int(38, scale, 16), footer_y + _scale_int(17, scale, 8)), footer_text, font=footer_font, fill=accent)
 
         cols = _safe_string_list(page.get("highlights"))[:3]
         chip_x = margin
-        chip_y = height - _scale_int(300, scale, 130)
+        chip_y = height - _scale_int(326, scale, 144)
         chip_gap = _scale_int(18, scale, 8)
         for idx2, text in enumerate(cols):
             if not text:
                 continue
-            lines, text_h = _wrapped_text_height(draw, text, highlight_font, _scale_int(360, scale, 180), 3, _scale_int(6, scale, 2))
+            lines, text_h = _wrapped_text_height(draw, text, highlight_font, _scale_int(390, scale, 200), 3, _scale_int(6, scale, 2))
             text_width = 0
             for line in lines:
                 bbox = draw.textbbox((0, 0), line, font=highlight_font)
                 text_width = max(text_width, bbox[2] - bbox[0])
-            card_w = min(_scale_int(420, scale, 200), text_width + _scale_int(70, scale, 28))
-            card_h = max(_scale_int(60, scale, 32), text_h + _scale_int(26, scale, 12))
+            card_w = min(_scale_int(440, scale, 220), text_width + _scale_int(84, scale, 34))
+            card_h = max(_scale_int(72, scale, 38), text_h + _scale_int(34, scale, 16))
             if chip_x + card_w > width - margin:
                 chip_x = margin
                 chip_y += card_h + chip_gap
-            draw.rounded_rectangle((chip_x, chip_y, chip_x + card_w, chip_y + card_h), radius=_scale_int(26, scale, 12), fill=(255, 248, 240, 236))
-            draw.ellipse((chip_x + _scale_int(18, scale, 8), chip_y + _scale_int(21, scale, 10), chip_x + _scale_int(32, scale, 16), chip_y + _scale_int(35, scale, 18)), fill=accent)
-            _draw_multiline(draw, (chip_x + _scale_int(44, scale, 18), chip_y + _scale_int(12, scale, 6)), text, highlight_font, dark, card_w - _scale_int(58, scale, 24), 3, _scale_int(6, scale, 2))
+            draw.rounded_rectangle((chip_x, chip_y, chip_x + card_w, chip_y + card_h), radius=_scale_int(30, scale, 14), fill=(255, 248, 240, 236))
+            draw.ellipse((chip_x + _scale_int(22, scale, 10), chip_y + _scale_int(25, scale, 12), chip_x + _scale_int(38, scale, 18), chip_y + _scale_int(41, scale, 20)), fill=accent)
+            _draw_multiline(draw, (chip_x + _scale_int(52, scale, 22), chip_y + _scale_int(15, scale, 8)), text, highlight_font, dark, card_w - _scale_int(70, scale, 30), 3, _scale_int(6, scale, 2))
             chip_x += card_w + chip_gap
         return canvas
 
-    title_bottom = _draw_multiline(draw, (margin, _scale_int(168, scale, 56)), str(page.get("title") or ""), title_font, dark, width - margin * 2, 2, _scale_int(10, scale, 4))
+    title_bottom = _draw_multiline(draw, (margin, _scale_int(76, scale, 28)), str(page.get("title") or ""), title_font, dark, width - margin * 2, 2, _scale_int(10, scale, 4))
     subtitle_bottom = _draw_multiline(
         draw,
-        (margin, title_bottom + _scale_int(10, scale, 4)),
+        (margin, title_bottom + _scale_int(8, scale, 4)),
         str(page.get("subtitle") or ""),
         subtitle_font,
         muted,
@@ -2065,29 +2081,11 @@ def _render_page(
         _scale_int(8, scale, 3),
     )
 
-    hero_top = subtitle_bottom + _scale_int(22, scale, 10)
-    hero_w = width - margin * 2
-    hero_h = max(_scale_int(780, scale, 420), height - hero_top - _scale_int(160, scale, 70))
+    hero_top = subtitle_bottom + _scale_int(18, scale, 8)
+    hero_w = width
+    hero_h = max(1, height - hero_top)
     hero = _fit_cover(background, hero_w, hero_h)
-    hero_mask = _rounded_mask((hero_w, hero_h), _scale_int(48, scale, 20))
-    canvas.paste(hero, (margin, hero_top), hero_mask)
-
-    chip_text = str(page.get("badge") or "").strip()
-    if chip_text:
-        chip_bbox = draw.textbbox((0, 0), chip_text, font=badge_font)
-        chip_w = chip_bbox[2] - chip_bbox[0] + _scale_int(44, scale, 18)
-        chip_h = chip_bbox[3] - chip_bbox[1] + _scale_int(20, scale, 10)
-        chip_x = margin + _scale_int(24, scale, 10)
-        chip_y = hero_top + _scale_int(24, scale, 10)
-        draw.rounded_rectangle((chip_x, chip_y, chip_x + chip_w, chip_y + chip_h), radius=_scale_int(24, scale, 10), fill=accent)
-        draw.text((chip_x + _scale_int(22, scale, 10), chip_y + _scale_int(10, scale, 4)), chip_text, font=badge_font, fill="#ffffff")
-
-    thumb_size = _scale_int(210, scale, 96)
-    thumb = _fit_cover(product_image, thumb_size, thumb_size)
-    thumb_mask = _rounded_mask((thumb_size, thumb_size), _scale_int(32, scale, 12))
-    thumb_x = width - margin - thumb_size - _scale_int(22, scale, 10)
-    thumb_y = hero_top + _scale_int(24, scale, 10)
-    canvas.paste(thumb, (thumb_x, thumb_y), thumb_mask)
+    canvas.paste(hero, (0, hero_top))
 
     if icon_id and icon_id in icon_images and slot_name in {"feature", "material", "scene", "trust"}:
         icon_size = _scale_int(86, scale, 40)
@@ -2104,38 +2102,8 @@ def _render_page(
         icon_y = icon_panel_y + (icon_panel_size - icon_size) // 2
         canvas.paste(icon_image, (icon_x, icon_y), icon_image)
 
-    bullet_items = _safe_string_list(page.get("highlights"))[:4]
-    bullet_x = margin + _scale_int(34, scale, 14)
-    bullet_text_x = bullet_x + _scale_int(42, scale, 18)
-    bullet_text_width = min(hero_w - _scale_int(110, scale, 40), _scale_int(760, scale, 360))
-    bullet_spacing = _scale_int(10, scale, 4)
-    bullet_block_gap = _scale_int(18, scale, 8)
-    bullet_y_start = hero_top + hero_h - _scale_int(220, scale, 110)
-    y = bullet_y_start
-
-    for item in bullet_items:
-        lines, text_h = _wrapped_text_height(draw, item, bullet_font, bullet_text_width, 2, bullet_spacing)
-        if not lines:
-            continue
-        dot_y = y + max(_scale_int(8, scale, 4), (text_h // 2) - _scale_int(8, scale, 4))
-        dot_size = _scale_int(16, scale, 8)
-        draw.ellipse((bullet_x, dot_y, bullet_x + dot_size, dot_y + dot_size), fill=accent)
-        _draw_multiline_stroked(
-            draw,
-            (bullet_text_x, y),
-            "".join(lines),
-            bullet_font,
-            "#fffdf8",
-            "#231a14",
-            _scale_int(4, scale, 1),
-            bullet_text_width,
-            2,
-            bullet_spacing,
-        )
-        y += text_h + bullet_block_gap
-
     footer_text = str(page.get("footer") or "").strip()
-    if footer_text:
+    if footer_text and is_cover:
         footer_y = height - _scale_int(92, scale, 42)
         footer_bbox = draw.textbbox((0, 0), footer_text, font=footer_font)
         footer_w = min(width - margin * 2, footer_bbox[2] - footer_bbox[0] + _scale_int(80, scale, 30))
@@ -3183,7 +3151,31 @@ def _generate_white_bg_assets(
     analysis: Dict[str, Any],
     config: PipelineConfig,
     reference_urls: List[str],
+    product_image_rgba: Image.Image,
 ) -> Dict[str, Any]:
+    if _image_has_real_transparency(product_image_rgba):
+        transparent_image = _normalize_reference_cutout(product_image_rgba, width=800, height=800)
+        white_bg_image = _normalize_reference_cutout(
+            product_image_rgba,
+            width=800,
+            height=800,
+            background=(255, 255, 255, 255),
+        ).convert("RGB")
+        return {
+            "white_bg_image": white_bg_image,
+            "black_bg_image": None,
+            "transparent_image": transparent_image,
+            "generation_mode": "reference_alpha",
+            "generated_image_url": "",
+            "prompt": "",
+            "attempts": 0,
+            "white_bg_generated_image_url": "",
+            "black_bg_generated_image_url": "",
+            "white_bg_prompt": "",
+            "black_bg_prompt": "",
+            "warnings": [],
+        }
+
     white_prompt = _compose_white_bg_prompt(analysis)
     white_generated, white_attempts = client.generate_image(
         config.image_model,
@@ -3716,6 +3708,7 @@ def run_pipeline(data: Input) -> Dict[str, Any]:
                 analysis=analysis,
                 config=config,
                 reference_urls=reference_urls,
+                product_image_rgba=product_image_rgba,
             )
             logger.step(
                 "08_generate_white_bg_assets",
@@ -3800,6 +3793,7 @@ def run_pipeline(data: Input) -> Dict[str, Any]:
         partial_output["archive_path"] = archive_path
         logger.step("12_archive", "success", attempts=1, payload={"archive_path": archive_path})
 
+        usage = logger.usage_snapshot()
         output = {
             "run_dir": str(logger.run_dir),
             "detail_dir": str(logger.detail_dir),
@@ -3877,7 +3871,8 @@ def run_pipeline(data: Input) -> Dict[str, Any]:
             "page_results": sorted(page_results, key=lambda x: int(x["index"])),
             "failed_pages": failed_pages,
             "final_long_image": long_image,
-            "usage": logger.usage_snapshot(),
+            "usage": usage,
+            "billing_summary": _usage_billing_summary(usage),
             "config": {
                 "analysis_model": config.analysis_model,
                 "image_model": config.image_model,
@@ -4305,9 +4300,6 @@ def _compose_sku_layout_image(
 
     title_font_size = max(38, size // 18)
     title_font = _font(title_font_size, bold=True)
-    sub_font = _font(max(22, size // 40))
-    chip_font = _font(max(18, size // 54), bold=True)
-    tiny_font = _font(max(18, size // 56))
 
     margin = int(size * 0.06)
     title_source = str(analysis.get("product_name") or analysis.get("hero_claim") or analysis.get("category") or "SKU图").strip()
@@ -4315,15 +4307,6 @@ def _compose_sku_layout_image(
     title_lines = _split_text_by_chars(title, 10, 2)
     if not title_lines:
         title_lines = ["SKU图"]
-    subtitle = str(analysis.get("category") or analysis.get("product_summary") or "").strip()
-    if not subtitle:
-        subtitle = "适合电商 SKU 展示"
-    subtitle = _sanitize_copy_text(subtitle)
-    if len(subtitle) > 10:
-        subtitle = _short_overlay_phrase(subtitle, 10) or subtitle[:10]
-    size_specs = _primary_size_specs(analysis)
-    top_right = " / ".join(size_specs[:1]) or _short_overlay_phrase(analysis.get("category") or "", 8)
-
     title_max_width = size - margin * 2 - int(size * 0.2)
     title_font = _fit_font_to_lines(
         draw,
@@ -4333,42 +4316,7 @@ def _compose_sku_layout_image(
         max_width=title_max_width,
         bold=True,
     )
-    title_bottom = _draw_line_list(draw, (margin, int(size * 0.04)), title_lines, title_font, text_dark, int(size * 0.008))
-    if subtitle:
-        subtitle_y = min(title_bottom + int(size * 0.008), top_band_h - int(size * 0.05))
-        _draw_multiline(draw, (margin, subtitle_y), subtitle, sub_font, "#f7e9dc", int(size * 0.42), 1, 6)
-
-    if top_right:
-        bbox = draw.textbbox((0, 0), top_right, font=sub_font)
-        draw.text((size - margin - (bbox[2] - bbox[0]), int(size * 0.055)), top_right, font=sub_font, fill="#fff1e6")
-
-    inset_w = int(size * 0.22)
-    inset_h = int(size * 0.22)
-    inset_x = size - margin - inset_w
-    inset_y = top_band_h + int(size * 0.03)
-    draw.rounded_rectangle((inset_x, inset_y, inset_x + inset_w, inset_y + inset_h), radius=int(size * 0.02), fill=(255, 255, 255, 242))
-    inset_fit = _fit_contain(inset_image.convert("RGBA"), inset_w - int(size * 0.03), inset_h - int(size * 0.03))
-    canvas.paste(inset_fit, (inset_x + int(size * 0.015), inset_y + int(size * 0.015)), inset_fit)
-
-    chips = [_short_overlay_phrase(item, 10) or _sanitize_copy_text(item)[:10] for item in _safe_string_list(analysis.get("selling_points"))[:3]]
-    chips = [item for item in chips if item]
-    chip_y = size - margin - int(size * 0.15)
-    chip_x = margin
-    for chip in chips:
-        text = chip[:10]
-        bbox = draw.textbbox((0, 0), text, font=chip_font)
-        chip_w = (bbox[2] - bbox[0]) + int(size * 0.045)
-        chip_h = int(size * 0.05)
-        if chip_x + chip_w > size - margin:
-            chip_x = margin
-            chip_y += chip_h + int(size * 0.014)
-        draw.rounded_rectangle((chip_x, chip_y, chip_x + chip_w, chip_y + chip_h), radius=chip_h // 2, fill=(110, 67, 37, 228))
-        draw.text((chip_x + int(size * 0.022), chip_y + int(size * 0.01)), text, font=chip_font, fill=light)
-        chip_x += chip_w + int(size * 0.015)
-
-    footnote = "以商品实物展示为准"
-    bbox = draw.textbbox((0, 0), footnote, font=tiny_font)
-    draw.text((size - margin - (bbox[2] - bbox[0]), size - margin - int(size * 0.032)), footnote, font=tiny_font, fill=body_dark)
+    _draw_line_list(draw, (margin, int(size * 0.04)), title_lines, title_font, text_dark, int(size * 0.008))
 
     return canvas.convert("RGB")
 
@@ -4533,9 +4481,9 @@ def _build_showcase_source_pool(
             return
         pool.append({"name": name, "image": image, "mode": mode, "anchors": anchors})
 
-    add("main_portrait", main_portrait_image, mode="cover", anchors=[(0.5, 0.14), (0.5, 0.38), (0.5, 0.7), (0.24, 0.34), (0.76, 0.3)])
-    add("main_square", main_square_image, mode="cover", anchors=[(0.15, 0.25), (0.5, 0.45), (0.82, 0.32), (0.5, 0.82)])
-    add("sku_scene", sku_scene_image, mode="cover", anchors=[(0.18, 0.3), (0.5, 0.45), (0.82, 0.35), (0.5, 0.76)])
+    add("main_portrait", main_portrait_image, mode="cover", anchors=[(0.5, 0.22), (0.5, 0.36), (0.5, 0.5), (0.5, 0.62)])
+    add("main_square", main_square_image, mode="cover", anchors=[(0.5, 0.24), (0.5, 0.4), (0.5, 0.52), (0.5, 0.64)])
+    add("sku_scene", sku_scene_image, mode="cover", anchors=[(0.5, 0.24), (0.5, 0.4), (0.5, 0.54), (0.5, 0.66)])
     add("white_bg", white_bg_image, mode="contain", anchors=[(0.5, 0.5)])
     add("product_cutout", product_image_rgba, mode="contain", anchors=[(0.5, 0.5)])
     return pool
@@ -4680,22 +4628,83 @@ def _render_showcase_card(
     soft_line = theme["soft_line"]
     chip_bg = theme["chip_bg"]
 
-    title_font = _font(90, bold=True)
-    subtitle_font = _font(34)
-    label_font = _font(30, bold=True)
-    number_font = _font(68, bold=True)
-    body_font = _font(28)
-    chip_font = _font(26, bold=True)
+    scale = max(0.5, min(width / 1440.0, height / 1920.0))
+    title_font = _font(int(68 * scale), bold=True)
+    subtitle_font = _font(int(34 * scale), bold=True)
+    label_font = _font(int(34 * scale), bold=True)
+
+    def scaled(value: int) -> int:
+        return max(1, int(round(value * scale)))
+
+    def caption_text(value: Any, max_chars: int) -> str:
+        text = _sanitize_copy_text(value)
+        if not text:
+            return ""
+        if re.search(r"[A-Za-z]", text) and " " in text:
+            words: List[str] = []
+            for word in text.split():
+                candidate = " ".join(words + [word])
+                if len(candidate) > max_chars and words:
+                    break
+                words.append(word)
+            return " ".join(words)[:max_chars].strip()
+        return _showcase_compact_text(text, max_chars)
+
+    def fit_single_line(text: Any, font: Any, max_width: int, *, max_chars: int, min_size: int) -> tuple[str, Any]:
+        line = caption_text(text, max_chars)
+        if not line:
+            return "", font
+        size = getattr(font, "size", min_size)
+        while size > min_size:
+            candidate_font = _font(size, bold=True)
+            bbox = draw.textbbox((0, 0), line, font=candidate_font)
+            if bbox[2] - bbox[0] <= max_width:
+                return line, candidate_font
+            size -= 4
+        final_font = _font(min_size, bold=True)
+        base = line.rstrip(".")
+        while base:
+            candidate = base if base == line else base.rstrip() + "..."
+            bbox = draw.textbbox((0, 0), candidate, font=final_font)
+            if bbox[2] - bbox[0] <= max_width:
+                return candidate, final_font
+            base = base[:-1].rstrip()
+        return "", final_font
+
+    def draw_single_line(pos: tuple[int, int], text: Any, font: Any, fill: str, max_width: int, *, max_chars: int, min_size: int) -> int:
+        line, use_font = fit_single_line(text, font, max_width, max_chars=max_chars, min_size=min_size)
+        if not line:
+            return pos[1]
+        draw.text(pos, line, font=use_font, fill=fill)
+        bbox = draw.textbbox(pos, line, font=use_font)
+        return bbox[3]
+
+    def draw_compact_heading(title: Any, subtitle: Any = "") -> int:
+        x = scaled(72)
+        y = scaled(62)
+        max_text_w = width - x * 2
+        title_bottom = draw_single_line((x, y), title, title_font, dark, max_text_w, max_chars=14, min_size=scaled(42))
+        subtitle_bottom = title_bottom
+        if subtitle:
+            subtitle_bottom = draw_single_line(
+                (x, title_bottom + scaled(12)),
+                subtitle,
+                subtitle_font,
+                muted,
+                max_text_w,
+                max_chars=12,
+                min_size=scaled(24),
+            )
+        return max(scaled(168), subtitle_bottom + scaled(28))
 
     variant = int(template_variant) % 4 if template_variant is not None else index % 4
-    radius = 40
 
     if variant == 0:
-        outer_margin = 36
-        gap = 26
+        outer_margin = scaled(24)
+        gap = scaled(18)
         tile_w = (width - outer_margin * 2 - gap) // 2
-        tile_h = 790
-        caption_h = 136
+        tile_h = (height - outer_margin * 2 - gap) // 2
+        caption_h = scaled(92)
         panel_h = tile_h - caption_h
         points = [
             record["title"],
@@ -4708,58 +4717,37 @@ def _render_showcase_card(
                 tile_idx = row * 2 + col
                 x = outer_margin + col * (tile_w + gap)
                 y = outer_margin + row * (tile_h + gap)
-                draw.rounded_rectangle((x, y, x + tile_w, y + tile_h), radius=radius, fill=card_white)
                 panel = make_panel(tile_idx, tile_w, panel_h, anchor_idx=tile_idx, mode_hint="scene")
-                _paste_rounded_panel(canvas, panel, x, y, tile_w, panel_h, radius=radius)
-                text_y = y + panel_h + 22
-                _draw_multiline(draw, (x + 24, text_y), points[tile_idx], label_font, dark, tile_w - 48, 1, 6)
-                if tile_idx < 2:
-                    sub = record["summary"]
-                else:
-                    sub = record["subtitle"]
-                if sub and sub != points[tile_idx]:
-                    _draw_multiline(draw, (x + 24, text_y + 48), sub, body_font, muted, tile_w - 48, 1, 4)
+                canvas.paste(panel.convert("RGBA"), (x, y))
+                draw_single_line(
+                    (x + scaled(8), y + panel_h + scaled(20)),
+                    points[tile_idx],
+                    label_font,
+                    dark,
+                    tile_w - scaled(16),
+                    max_chars=12,
+                    min_size=scaled(24),
+                )
         return canvas.convert("RGB")
 
     if variant == 1:
-        draw.rounded_rectangle((28, 24, width - 28, height - 24), radius=44, fill=card_white)
-        title_bottom = _draw_multiline(draw, (72, 74), record["title"], title_font, dark, width - 320, 2, 12)
-        _draw_multiline(draw, (72, title_bottom + 12), record["subtitle"], subtitle_font, muted, width - 320, 1, 8)
-        num = f"{index + 1:02d}"
-        draw.text((width - 178, 84), num, font=number_font, fill=accent)
-        _draw_multiline(draw, (width - 180, 154), record["corner"], body_font, dark, 120, 1, 4)
-        panel = make_panel(0, width - 72, 1300, anchor_idx=index, mode_hint="scene")
-        _paste_rounded_panel(canvas, panel, 36, 488, width - 72, 1300, radius=radius)
+        panel_top = draw_compact_heading(record["title"], record["subtitle"])
+        panel_h = height - panel_top
+        panel = make_panel(0, width, panel_h, anchor_idx=index, mode_hint="scene")
+        canvas.paste(panel.convert("RGBA"), (0, panel_top))
         return canvas.convert("RGB")
 
     if variant == 2:
-        draw.rounded_rectangle((28, 24, width - 28, height - 24), radius=44, fill=card_white)
-        title_bottom = _draw_multiline(draw, (72, 74), record["title"], title_font, dark, width - 320, 2, 12)
-        _draw_multiline(draw, (72, title_bottom + 12), record["subtitle"], subtitle_font, muted, width - 320, 1, 8)
-        draw.text((width - 178, 84), f"{index + 1:02d}", font=number_font, fill=accent)
-        _draw_multiline(draw, (width - 180, 154), record["corner"], body_font, dark, 120, 1, 4)
-        panel = make_panel(1, width - 72, 1170, anchor_idx=index + 1, mode_hint="scene")
-        _paste_rounded_panel(canvas, panel, 36, 520, width - 72, 1170, radius=radius)
-        draw.rounded_rectangle((1050, 520, width - 36, 1690), radius=36, fill=chip_bg)
-        draw.rounded_rectangle((1050, 520, width - 36, 910), radius=36, fill=accent)
-        draw.rounded_rectangle((1050, 910, width - 36, 1300), radius=0, fill=soft_line)
-        _draw_multiline(draw, (1100, 620), record["title"], chip_font, white, 250, 3, 12)
-        _draw_multiline(draw, (1100, 1010), record["subtitle"], chip_font, dark, 250, 3, 10)
-        _draw_multiline(draw, (1100, 1400), record["summary"], chip_font, white, 250, 3, 10)
+        panel_top = draw_compact_heading(record["title"], record["subtitle"])
+        panel_h = height - panel_top
+        panel = make_panel(1, width, panel_h, anchor_idx=index + 1, mode_hint="scene")
+        canvas.paste(panel.convert("RGBA"), (0, panel_top))
         return canvas.convert("RGB")
 
-    draw.rounded_rectangle((28, 24, width - 28, height - 24), radius=44, fill=card_white)
-    panel_w = width - 72
-    top_panel = make_panel(2, panel_w, 680, anchor_idx=index, mode_hint="scene")
-    bottom_panel = make_panel(3, panel_w, 680, anchor_idx=index + 2, mode_hint="scene")
-    _paste_rounded_panel(canvas, top_panel, 36, 40, panel_w, 680, radius=radius)
-    draw.rounded_rectangle((36, 708, width - 36, 870), radius=30, fill="#fffaf4")
-    _draw_multiline(draw, (62, 742), record["title"], title_font, dark, width - 240, 2, 10)
-    draw.rounded_rectangle((width - 220, 730, width - 62, 812), radius=24, fill=soft_line)
-    _draw_multiline(draw, (width - 196, 752), record["corner"], chip_font, dark, 132, 2, 6)
-    _paste_rounded_panel(canvas, bottom_panel, 36, 950, panel_w, 680, radius=radius)
-    draw.rounded_rectangle((36, 1636, width - 36, 1758), radius=28, fill=theme["card_white"])
-    _draw_multiline(draw, (62, 1668), record["hero_claim"], label_font, dark, width - 124, 1, 6)
+    panel_top = draw_compact_heading(record["title"], record["subtitle"] or record["hero_claim"])
+    panel_h = height - panel_top
+    panel = make_panel(2, width, panel_h, anchor_idx=index, mode_hint="scene")
+    canvas.paste(panel.convert("RGBA"), (0, panel_top))
     return canvas.convert("RGB")
 
 

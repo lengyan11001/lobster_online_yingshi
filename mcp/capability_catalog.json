@@ -14,7 +14,7 @@
         },
         "model": {
           "type": "string",
-          "description": "可选，如 fal-ai/flux-2/flash, jimeng-4.5"
+          "description": "可选（省略时默认 fal-ai/flux-2/flash）"
         },
         "image_url": {
           "type": "string",
@@ -41,7 +41,7 @@
       "properties": {
         "model": {
           "type": "string",
-          "description": "必填。指定使用的视频模型，如 st-ai/super-seed2(Seedance 2 文/图生), wan/v2.6/image-to-video(图生), fal-ai/kling-video/o3/pro/image-to-video。用户说「用 Seedance」「用 wan」等即指定此字段。"
+          "description": "可选（省略时默认 sora2 即 fal-ai/sora-2/text-to-video）。用户说「用 Seedance」「用 wan」等即指定此字段。"
         },
         "prompt": {
           "type": "string",
@@ -61,7 +61,6 @@
         }
       },
       "required": [
-        "model",
         "prompt"
       ]
     }
@@ -758,7 +757,7 @@
     }
   },
   "ecommerce.publish": {
-    "description": "电商商品发布：打开对应平台（抖店/小红书千帆/1688/淘宝/拼多多）的商品创建页面，自动填写商品信息但不提交。action: open_product_form(打开发布页), list_shop_accounts(列出店铺账号)。",
+    "description": "电商商品发布：打开对应平台（抖店/小红书千帆/1688/淘宝/拼多多）的商品创建页面，自动填写商品标题、价格，并上传主图/详情图（通过 asset_id 自动解析为本地文件），但不提交。action: open_product_form(打开并自动填充发布页), list_shop_accounts(列出店铺账号)。",
     "upstream": "local",
     "upstream_tool": "invoke",
     "enabled": true,
@@ -769,31 +768,39 @@
       "properties": {
         "action": {
           "type": "string",
-          "enum": ["open_product_form", "list_shop_accounts"]
+          "enum": ["open_product_form", "list_shop_accounts"],
+          "description": "操作类型。open_product_form 打开商品创建页并自动填充；list_shop_accounts 列出已登录的店铺账号。"
         },
         "platform": {
           "type": "string",
-          "enum": ["douyin_shop", "xiaohongshu_shop", "alibaba1688", "taobao", "pinduoduo"]
+          "enum": ["douyin_shop", "xiaohongshu_shop", "alibaba1688", "taobao", "pinduoduo"],
+          "description": "电商平台 ID"
         },
         "account_nickname": {
-          "type": "string"
+          "type": "string",
+          "description": "店铺账号昵称，不传则使用该平台第一个账号"
         },
         "title": {
-          "type": "string"
+          "type": "string",
+          "description": "商品标题，传入后自动填写到标题输入框"
         },
         "main_image_asset_ids": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": {"type": "string"},
+          "description": "主图素材 ID 列表（来自素材库的 asset_id），自动上传到主图区域"
         },
         "detail_image_asset_ids": {
           "type": "array",
-          "items": {"type": "string"}
+          "items": {"type": "string"},
+          "description": "详情图素材 ID 列表，自动上传到详情图区域"
         },
         "price": {
-          "type": "string"
+          "type": "string",
+          "description": "商品价格，传入后自动填写到价格输入框"
         },
         "category": {
-          "type": "string"
+          "type": "string",
+          "description": "商品类目（暂不自动填写，供参考）"
         }
       }
     }

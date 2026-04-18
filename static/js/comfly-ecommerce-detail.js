@@ -307,6 +307,43 @@
     if (!state.currentJobId && state.recentJobs.length) {
       _activateRecentJob(state.recentJobs[0].jobId, { skipRefresh: false });
     }
+    _mergeDbJobs();
+  }
+
+  function _mergeDbJobs() {
+    var base = _localBase();
+    if (!base) return;
+    fetch(base + '/api/comfly-ecommerce-detail/pipeline/jobs?limit=20', {
+      headers: authHeaders()
+    })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(data) {
+        if (!data || !Array.isArray(data.jobs)) return;
+        var changed = false;
+        data.jobs.forEach(function(dbJob) {
+          if (!dbJob || !dbJob.job_id) return;
+          if (_findRecentJob(dbJob.job_id)) return;
+          _upsertRecentJob({
+            jobId: dbJob.job_id,
+            createdAt: dbJob.created_at || new Date().toISOString(),
+            updatedAt: dbJob.created_at || new Date().toISOString(),
+            status: dbJob.status || 'completed',
+            productName: dbJob.product_name || ('\u4efb\u52a1 ' + String(dbJob.job_id).slice(0, 8)),
+            galleryByTab: {},
+            latestResponse: null,
+            fromDb: true
+          });
+          changed = true;
+        });
+        if (changed) {
+          _renderRecentTasks();
+          _renderTaskDrawer();
+          if (!state.currentJobId && state.recentJobs.length) {
+            _activateRecentJob(state.recentJobs[0].jobId, { skipRefresh: false });
+          }
+        }
+      })
+      .catch(function() {});
   }
 
   function _collectProgressFacts(resp) {
@@ -888,7 +925,7 @@
     if (usage.total_points != null) facts.push('累计点数：' + usage.total_points);
     if (result && result.suite_bundle && result.suite_bundle.root_relative_path) facts.push('输出目录：' + result.suite_bundle.root_relative_path);
     if (!facts.length) {
-      wrap.innerHTML = '<div class="ecom-empty">生成完成后，这里会显示模型、页数、积分消耗和输出目录摘要。</div>';
+      wrap.innerHTML = '<div class="ecom-empty">生成完成后，这里会显示模型、页数、算力消耗和输出目录摘要。</div>';
       return;
     }
     wrap.innerHTML = facts.map(function(item) {
@@ -1136,7 +1173,7 @@
     if (result && result.suite_bundle && result.suite_bundle.root_relative_path) facts.push('输出目录：' + result.suite_bundle.root_relative_path);
     facts = facts.concat(_collectProgressFacts(resp));
     if (!facts.length) {
-      wrap.innerHTML = '<div class="ecom-empty">生成完成后，这里会显示模型、页数、积分消耗和输出目录摘要。</div>';
+      wrap.innerHTML = '<div class="ecom-empty">生成完成后，这里会显示模型、页数、算力消耗和输出目录摘要。</div>';
       return;
     }
     wrap.innerHTML = facts.map(function(item) {
@@ -1361,6 +1398,10 @@
       else if (status === 'running') summaryEl.textContent = '任务生成中，右侧仅保留轻量进度，主区域优先展示最终图片结果。';
       else summaryEl.textContent = '按真实导出目录浏览结果，右侧只保留轻量状态和任务摘要。';
     }
+    var publishBtn = byId('ecomPublishToShopBtn');
+    if (publishBtn) {
+      publishBtn.style.display = (status === 'completed' && state.currentJobId) ? '' : 'none';
+    }
   }
 
   function _renderStatus(resp) {
@@ -1512,6 +1553,46 @@
     _setMsg('', false);
   }
 
+  function _publishToShop() {
+    var base = _localBase();
+    if (!base || !state.currentJobId) {
+      _setMsg('无有效任务或未连接后端。', true);
+      return;
+    }
+    var btn = byId('ecomPublishToShopBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '正在打开抖店…'; }
+    var record = _findRecentJob(state.currentJobId);
+    var payload = {
+      job_id: state.currentJobId,
+      platform: 'douyin_shop',
+      title: record && record.productName ? record.productName : undefined
+    };
+    fetch(base + '/api/ecommerce-publish/from-job', {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+      body: JSON.stringify(payload)
+    })
+      .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+      .then(function(res) {
+        if (btn) { btn.disabled = false; btn.textContent = '发布到抖店'; }
+        if (res.ok && res.data && res.data.ok) {
+          var parts = ['已打开抖店商品发布页面'];
+          if (res.data.auto_filled && res.data.auto_filled.length) {
+            parts.push('自动填充: ' + res.data.auto_filled.join(', '));
+          }
+          _setMsg(parts.join('，') + '。请在浏览器中检查并手动发布。', false);
+        } else if (res.data && res.data.need_login) {
+          _setMsg(res.data.message || '请先登录抖店', true);
+        } else {
+          _setMsg(res.data.detail || res.data.message || '发布失败', true);
+        }
+      })
+      .catch(function(err) {
+        if (btn) { btn.disabled = false; btn.textContent = '发布到抖店'; }
+        _setMsg('发布请求失败: ' + (err.message || err), true);
+      });
+  }
+
   function _bindActions() {
     var backBtn = byId('ecomStudioBackBtn');
     if (backBtn) backBtn.addEventListener('click', function() {
@@ -1525,6 +1606,8 @@
     if (refreshBtn) refreshBtn.addEventListener('click', function() { _refreshJobStatus(true); });
     var drawerBtn = byId('ecomToggleTaskDrawerBtn');
     if (drawerBtn) drawerBtn.addEventListener('click', function() { _setTaskDrawerOpen(); });
+    var publishBtn = byId('ecomPublishToShopBtn');
+    if (publishBtn) publishBtn.addEventListener('click', _publishToShop);
     var mainAssetInput = byId('ecomMainAssetIdInput');
     if (mainAssetInput) {
       mainAssetInput.addEventListener('change', function() {
@@ -1609,6 +1692,46 @@
           '</div>' +
         closeTag
       );
+    }).join('');
+  }
+
+  function _renderFacts(resp) {
+    var wrap = byId('ecomRunFacts');
+    if (!wrap) return;
+    var result = resp && resp.result ? resp.result : {};
+    var config = result && result.config ? result.config : {};
+    var progress = resp && resp.progress ? resp.progress : {};
+    var usage = progress && progress.usage_summary ? progress.usage_summary : {};
+    var billing = result && result.billing_summary ? result.billing_summary : {};
+    var facts = [];
+    if (state.currentJobId) facts.push('任务 ID：' + state.currentJobId);
+    if (config.analysis_model) facts.push('分析模型：' + config.analysis_model);
+    if (config.image_model) facts.push('生图模型：' + config.image_model);
+    if (config.page_count) facts.push('详情页数：' + config.page_count);
+    if (usage.image_count != null) facts.push('生图成功次数：' + usage.image_count);
+    if (usage.analysis_count != null) facts.push('分析调用次数：' + usage.analysis_count);
+    if (billing.total_points != null) {
+      var amount = billing.total_cost_cny != null ? ('（约 ¥' + Number(billing.total_cost_cny).toFixed(2) + '）') : '';
+      facts.push('积分消耗：' + billing.total_points + ' 积分' + amount);
+    } else if (usage.total_points != null) {
+      facts.push('积分消耗：' + usage.total_points + ' 积分');
+    }
+    if (billing.image_points_per_success != null || billing.analysis_points_per_call != null) {
+      facts.push(
+        '计费规则：生图成功 ' + String(billing.image_points_per_success != null ? billing.image_points_per_success : 40) +
+        ' 积分/次，分析 ' + String(billing.analysis_points_per_call != null ? billing.analysis_points_per_call : 10) + ' 积分/次'
+      );
+    }
+    if (result && result.suite_bundle && result.suite_bundle.root_relative_path) {
+      facts.push('输出目录：' + result.suite_bundle.root_relative_path);
+    }
+    facts = facts.concat(_collectProgressFacts(resp));
+    if (!facts.length) {
+      wrap.innerHTML = '<div class="ecom-empty">生成完成后，这里会显示模型、页数、积分消耗和输出目录摘要。</div>';
+      return;
+    }
+    wrap.innerHTML = facts.map(function(item) {
+      return '<div class="ecom-activity-item"><div>' + escapeHtml(item) + '</div></div>';
     }).join('');
   }
 

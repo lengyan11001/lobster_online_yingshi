@@ -1,4 +1,4 @@
-"""按 xSkill 公开「模型文档」接口拉取 pricing，估算与预扣一致的积分参考（见 model-pricing-guide）。"""
+"""按 xSkill 公开「模型文档」接口拉取 pricing，估算与预扣一致的算力参考（见 model-pricing-guide）。"""
 from __future__ import annotations
 
 import logging
@@ -94,7 +94,7 @@ def _first_example_price(pricing: Dict[str, Any]) -> Optional[int]:
 
 
 def estimate_credits_from_pricing(pricing: Dict[str, Any], params: Dict[str, Any]) -> Tuple[Optional[int], str]:
-    """根据 docs 中 pricing + 本次 params 估算积分；无法精确时返回说明文案。"""
+    """根据 docs 中 pricing + 本次 params 估算算力；无法精确时返回说明文案。"""
     ptype = (pricing.get("price_type") or "").strip()
     desc = (pricing.get("price_description") or "").strip()
     base = pricing.get("base_price")
@@ -118,7 +118,7 @@ def estimate_credits_from_pricing(pricing: Dict[str, Any], params: Dict[str, Any
         n = _num_images_from_params(params)
         return int(round(base_f * n)), f"{desc}（按本次约 {n} 张估算）" if n != 1 else desc
 
-    if ptype == "duration_based":
+    if ptype in ("duration_based", "dynamic_per_second"):
         if base_f is None:
             p = _first_example_price(pricing)
             return (p, desc) if p is not None else (None, desc or "按时长计价但缺少单价")
@@ -141,6 +141,27 @@ def estimate_credits_from_pricing(pricing: Dict[str, Any], params: Dict[str, Any
                 return ex_p, f"{desc}（未传时长，按文档示例价参考）"
             return None, desc or "按音频时长计价，请提供 duration 以便估算"
         return int(round(base_f * d)), f"{desc}（按本次约 {d:g} 秒估算）"
+
+    if ptype == "duration_map":
+        d = _duration_seconds_from_params(params)
+        examples: List[Any] = pricing.get("examples") or []
+        if d is not None and examples:
+            for ex in examples:
+                ex_desc = str(ex.get("description") or "")
+                try:
+                    ex_dur = float("".join(c for c in ex_desc if c.isdigit() or c == "."))
+                except (ValueError, TypeError):
+                    continue
+                if ex_dur > 0 and d <= ex_dur:
+                    return int(ex.get("price", 0)), f"{desc}（按 {d:g} 秒匹配档位）"
+            if examples:
+                return int(examples[-1].get("price", 0)), f"{desc}（按最长档位估算）"
+        ex_p_dm = _first_example_price(pricing)
+        if ex_p_dm is not None:
+            return ex_p_dm, f"{desc}（按最短档位估算）" if desc else "按最短档位估算"
+        if base_f is not None:
+            return int(round(base_f)), desc
+        return None, desc or "按时长分档计价，无法自动估算"
 
     if ptype == "token_based":
         return None, desc or "按 token 计费，确认前无法精确估算"

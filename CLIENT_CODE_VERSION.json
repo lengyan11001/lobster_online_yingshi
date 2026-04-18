@@ -1,6 +1,6 @@
 {
-  "version": "1.0.9",
-  "build": 15,
-  "applied_at": "2026-04-10T06:00:00.000Z",
-  "note": "Meta OAuth 原生Chrome + SSL certifi修复 + OTA .env保留升级路径"
+  "version": "1.0.12",
+  "build": 18,
+  "applied_at": "2026-04-17T05:15:00.000Z",
+  "note": "sync from D: domain migration, ecommerce publish, OTA optimizations"
 }

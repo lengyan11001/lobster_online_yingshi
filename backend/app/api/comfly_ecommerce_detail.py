@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal, get_db
-from ..models import Asset
+from ..models import Asset, EcommerceDetailJob
 from ..services.comfly_ecommerce_detail_job_store import (
     create_job_record,
     get_job,
@@ -476,6 +476,7 @@ async def _job_runner(job_id: str) -> None:
     except Exception as e:
         logger.exception("[comfly_ecommerce_detail] job %s failed", job_id[:12])
         update_job(job_id, status="failed", error=str(e)[:2000])
+        _persist_job_to_db(job_id, user_id=user_id, status="failed", error=str(e)[:2000])
         return
     internal_run_dir = str(result.get("run_dir") or "").strip()
     saved_assets: Dict[str, Any] = {"pages": [], "final": None}
@@ -489,6 +490,7 @@ async def _job_runner(job_id: str) -> None:
             except Exception:
                 logger.exception("[comfly_ecommerce_detail] job %s auto_save failed", job_id[:12])
                 update_job(job_id, status="failed", error="流水线执行成功，但素材入库失败", result=result)
+                _persist_job_to_db(job_id, user_id=user_id, status="failed", error="流水线执行成功，但素材入库失败", result=result)
                 db.close()
                 return
             finally:
@@ -497,6 +499,44 @@ async def _job_runner(job_id: str) -> None:
         if internal_run_dir:
             _cleanup_internal_run_dir({"run_dir": internal_run_dir})
     update_job(job_id, status="completed", error=None, result=result, saved_assets=saved_assets)
+    _persist_job_to_db(job_id, user_id=user_id, status="completed", saved_assets=saved_assets, result=result)
+
+
+def _persist_job_to_db(
+    job_id: str,
+    *,
+    user_id: int,
+    status: str,
+    saved_assets: Optional[Dict[str, Any]] = None,
+    result: Optional[Dict[str, Any]] = None,
+    error: Optional[str] = None,
+) -> None:
+    """将 job 最终状态持久化到数据库，重启后仍可查回。"""
+    product_name = _pick_export_title(result) if isinstance(result, dict) else None
+    db = SessionLocal()
+    try:
+        existing = db.query(EcommerceDetailJob).filter(EcommerceDetailJob.job_id == job_id).first()
+        if existing:
+            existing.status = status
+            existing.saved_assets = saved_assets
+            existing.error = error
+            existing.product_name = product_name
+            existing.updated_at = datetime.utcnow()
+        else:
+            db.add(EcommerceDetailJob(
+                job_id=job_id,
+                user_id=user_id,
+                status=status,
+                product_name=product_name,
+                saved_assets=saved_assets,
+                error=error,
+            ))
+        db.commit()
+    except Exception:
+        logger.exception("[comfly_ecommerce_detail] persist job %s to db failed", job_id[:12])
+        db.rollback()
+    finally:
+        db.close()
 
 
 def _redact_progress_for_client(progress: Any) -> Any:
@@ -615,6 +655,8 @@ async def ecommerce_detail_pipeline_start(
         job_output_dir=effective_dir,
         job_id=job_id,
     )
+    _persist_job_to_db(job_id, user_id=current_user.id, status="running",
+                       result={"product_name_hint": pl.product_name_hint})
 
     def _log_task(task: asyncio.Task) -> None:
         try:
@@ -633,15 +675,100 @@ async def ecommerce_detail_pipeline_start(
     }
 
 
+def _enrich_saved_assets_urls(
+    saved_assets: Dict[str, Any],
+    request: Request,
+) -> Dict[str, Any]:
+    """给 saved_assets.suite_bundle 里的 asset 对象补上 preview_url / open_url。"""
+    from .assets import build_asset_file_url
+
+    sa = dict(saved_assets) if saved_assets else {}
+    suite = sa.get("suite_bundle")
+    if not isinstance(suite, dict):
+        return sa
+    enriched_suite: Dict[str, Any] = {}
+    for cat, rows in suite.items():
+        if not isinstance(rows, list):
+            enriched_suite[cat] = rows
+            continue
+        new_rows = []
+        for item in rows:
+            if not isinstance(item, dict):
+                new_rows.append(item)
+                continue
+            item = dict(item)
+            asset = item.get("asset")
+            if isinstance(asset, dict):
+                asset = dict(asset)
+                aid = asset.get("asset_id", "")
+                if aid and not asset.get("preview_url"):
+                    url = build_asset_file_url(request, aid, expiry_sec=3600)
+                    if url:
+                        asset["preview_url"] = url
+                        asset["open_url"] = url
+                item["asset"] = asset
+            new_rows.append(item)
+        enriched_suite[cat] = new_rows
+    sa["suite_bundle"] = enriched_suite
+    return sa
+
+
 @router.get("/api/comfly-ecommerce-detail/pipeline/jobs/{job_id}")
 async def ecommerce_detail_pipeline_job_status(
     job_id: str,
     compact: bool = False,
     current_user: _ServerUser = Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+    request: Request = None,
 ):
     job = get_job(job_id)
-    if not job:
+    if job:
+        if int(job.get("user_id") or -1) != int(current_user.id):
+            raise HTTPException(status_code=403, detail="无权查看该任务")
+        return _job_status_response(job, include_full=not compact)
+    db_job = db.query(EcommerceDetailJob).filter(
+        EcommerceDetailJob.job_id == job_id,
+        EcommerceDetailJob.user_id == current_user.id,
+    ).first()
+    if not db_job:
         raise HTTPException(status_code=404, detail="任务不存在或已过期")
-    if int(job.get("user_id") or -1) != int(current_user.id):
-        raise HTTPException(status_code=403, detail="无权查看该任务")
-    return _job_status_response(job, include_full=not compact)
+    sa = _enrich_saved_assets_urls(db_job.saved_assets or {}, request) if request else (db_job.saved_assets or {})
+    return {
+        "ok": True,
+        "job_id": db_job.job_id,
+        "status": db_job.status,
+        "product_name": db_job.product_name,
+        "saved_assets": sa,
+        "error": db_job.error,
+        "created_at": db_job.created_at.isoformat() if db_job.created_at else None,
+        "source": "database",
+    }
+
+
+@router.get("/api/comfly-ecommerce-detail/pipeline/jobs")
+async def ecommerce_detail_pipeline_job_list(
+    limit: int = 50,
+    offset: int = 0,
+    current_user: _ServerUser = Depends(get_current_user_media_edit),
+    db: Session = Depends(get_db),
+):
+    """列出当前用户所有持久化的套图任务（按创建时间降序）。"""
+    query = db.query(EcommerceDetailJob).filter(
+        EcommerceDetailJob.user_id == current_user.id,
+    ).order_by(EcommerceDetailJob.created_at.desc())
+    total = query.count()
+    rows = query.offset(offset).limit(min(limit, 200)).all()
+    return {
+        "ok": True,
+        "total": total,
+        "jobs": [
+            {
+                "job_id": r.job_id,
+                "status": r.status,
+                "product_name": r.product_name,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "has_suite_bundle": bool((r.saved_assets or {}).get("suite_bundle")),
+            }
+            for r in rows
+        ],
+    }

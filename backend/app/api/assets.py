@@ -222,6 +222,11 @@ def _extract_cdn_from_mcp_invoke_result(rpc_result: dict) -> Optional[str]:
     return None
 
 
+_transfer_url_cache: dict = {}
+_transfer_url_cache_max = 200
+_transfer_url_inflight: dict = {}
+
+
 async def _transfer_url_via_sutui(
     url: str,
     media_type: str = "image",
@@ -229,6 +234,41 @@ async def _transfer_url_via_sutui(
     request: Optional[Request] = None,
 ) -> Optional[str]:
     """经本机 MCP 的 invoke_capability(capability_id=sutui.transfer_url) 转存；不可用裸工具名 sutui.transfer_url。"""
+    import asyncio
+    cached = _transfer_url_cache.get(url)
+    if cached is not None:
+        logger.debug("[转存] cache hit: %s", url[:80])
+        return cached if cached else None
+
+    inflight = _transfer_url_inflight.get(url)
+    if inflight is not None:
+        try:
+            return await asyncio.shield(inflight)
+        except Exception:
+            return None
+
+    async def _do_transfer():
+        return await _transfer_url_via_sutui_inner(url, media_type, user, request)
+
+    task = asyncio.ensure_future(_do_transfer())
+    _transfer_url_inflight[url] = task
+    try:
+        result = await task
+    finally:
+        _transfer_url_inflight.pop(url, None)
+    if len(_transfer_url_cache) >= _transfer_url_cache_max:
+        oldest = next(iter(_transfer_url_cache))
+        _transfer_url_cache.pop(oldest, None)
+    _transfer_url_cache[url] = result or ""
+    return result
+
+
+async def _transfer_url_via_sutui_inner(
+    url: str,
+    media_type: str = "image",
+    user=None,
+    request: Optional[Request] = None,
+) -> Optional[str]:
     try:
         sutui_token = None
         if user:
@@ -261,7 +301,7 @@ async def _transfer_url_via_sutui(
 
         tp = _transfer_payload_type(media_type)
         MCP_URL = "http://127.0.0.1:8001/mcp"
-        async with httpx.AsyncClient(timeout=120.0, trust_env=False) as client:
+        async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
             resp = await client.post(
                 MCP_URL,
                 json={
@@ -315,7 +355,7 @@ def _is_internal_asset_http_url(url: str) -> bool:
             return True
         if hostname in ("localhost", "127.0.0.1", "0.0.0.0"):
             return True
-        if "42.194.209.150" in hostname:
+        if "42.194.209.150" in hostname or "bhzn.top" in hostname:
             return True
         if "token=" in u or "?token" in u:
             return True
@@ -349,7 +389,7 @@ def _is_internal_asset_http_url(url: str) -> bool:
                 return True
         return False
     except Exception:
-        if "42.194.209.150" in u or "token=" in u or "?token" in u:
+        if "42.194.209.150" in u or "bhzn.top" in u or "token=" in u or "?token" in u:
             return True
         return False
 
@@ -404,41 +444,37 @@ def _is_loopback_base(base: str) -> bool:
 
 
 def _resolve_asset_public_base(request: Request) -> str:
-    """生成 /api/assets/file 签名链的根：同网段设备可访问，避免误用 127.0.0.1。"""
+    """生成 /api/assets/file 签名链的根。
+
+    策略：跟随请求的 Host header（浏览器从哪个地址访问就用哪个），
+    这样 IP 变化后不会失效。仅在需要被外部系统拉取时才用 PUBLIC_BASE_URL。
+    """
     from ..core.config import get_settings
 
     settings = get_settings()
     port = getattr(settings, "port", 8000)
     pub = (getattr(settings, "public_base_url", None) or "").strip().rstrip("/")
-    lan = (getattr(settings, "lan_public_base_url", None) or "").strip().rstrip("/")
 
-    base = ""
-    if pub and not _is_loopback_base(pub):
-        base = pub
-    elif lan and not _is_loopback_base(lan):
-        base = lan
-    elif pub and _is_loopback_base(pub):
-        # .env 里误填 127 时当作未配置，让 Host / LAN 生效
+    host_header = ""
+    try:
+        host_header = (request.headers.get("host") or "").strip()
+    except Exception:
         pass
 
-    if not base:
+    if host_header:
+        sch = "http"
         try:
-            base = str((request.base_url or "").rstrip("/"))
-        except Exception:
-            base = ""
-    if not base:
-        base = f"http://127.0.0.1:{port}"
-    if "0.0.0.0" in base:
-        host = (request.headers.get("host") or "").strip()
-        if host:
             sch = getattr(request.url, "scheme", None) or "http"
-            base = f"{sch}://{host}"
-        else:
-            base = base.replace("0.0.0.0", "127.0.0.1")
+        except Exception:
+            pass
+        base = f"{sch}://{host_header}"
+    else:
+        base = f"http://127.0.0.1:{port}"
 
-    if _is_loopback_base(base) and lan and not _is_loopback_base(lan):
-        base = lan
-    if _is_loopback_base(base) and pub:
+    if "0.0.0.0" in base:
+        base = base.replace("0.0.0.0", "127.0.0.1")
+
+    if _is_loopback_base(base) and pub and not _is_loopback_base(pub):
         base = pub
 
     try:
@@ -446,12 +482,7 @@ def _resolve_asset_public_base(request: Request) -> str:
     except UnicodeEncodeError:
         base = f"http://127.0.0.1:{port}"
         logger.warning(
-            "[素材] base_url 含非 ASCII，已回退为 127.0.0.1。请在 .env 设置 PUBLIC_BASE_URL 或 LAN_PUBLIC_BASE_URL（如 http://本机局域网IP:8000）。"
-        )
-    if _is_loopback_base(base):
-        logger.debug(
-            "[素材] 签名 URL 为回环地址；同网段预览请配置 LAN_PUBLIC_BASE_URL 或 PUBLIC_BASE_URL 为局域网/公网根地址 (port=%s)",
-            port,
+            "[素材] base_url 含非 ASCII，已回退为 127.0.0.1。请在 .env 设置 PUBLIC_BASE_URL（如 http://本机局域网IP:8000）。"
         )
     return base
 
@@ -1020,7 +1051,7 @@ async def _save_asset_from_url_locked(
                 is_internal = (
                     not hostname or
                     hostname in ("localhost", "127.0.0.1", "0.0.0.0") or
-                    "42.194.209.150" in hostname or
+                    "42.194.209.150" in hostname or "bhzn.top" in hostname or
                     (hostname and ("token=" in body.url or "?token" in body.url))
                 )
                 if not is_internal:

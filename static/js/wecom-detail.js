@@ -131,9 +131,9 @@
       if (key === 'messages') { loadSessionList(); if (selectedWecomCustomerId) loadMessageList(); }
       if (key === 'contacts' && typeof initWecomContacts === 'function') initWecomContacts();
       if (key === 'send' && typeof initWecomSend === 'function') initWecomSend();
-      if (key === 'customers') loadCustomerList();
+      if (key === 'customers' && typeof initKfCustomerTab === 'function') initKfCustomerTab();
       if (key === 'wechat-kf' && typeof initWecomKf === 'function') initWecomKf();
-      if (key === 'system') loadEnterpriseList();
+      if (key === 'system') { loadEnterpriseList(); loadNotifyRules(); }
     });
   });
 
@@ -142,6 +142,38 @@
     wecomDetailBackBtn.addEventListener('click', function() {
       location.hash = 'wecom-config';
       if (typeof showWecomConfigView === 'function') showWecomConfigView();
+    });
+  }
+
+  // 总开关
+  var masterSwitch = document.getElementById('wecomMasterSwitch');
+  var masterLabel = document.getElementById('wecomMasterSwitchLabel');
+  function _loadMasterSwitch() {
+    fetch(wecomApiBase() + '/api/wecom/master-switch', { headers: typeof authHeaders === 'function' ? authHeaders() : {} })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d) return;
+        if (masterSwitch) masterSwitch.checked = d.enabled;
+        if (masterLabel) {
+          masterLabel.textContent = d.enabled ? '已启用' : '已关闭';
+          masterLabel.style.color = d.enabled ? 'var(--accent)' : 'var(--text-muted)';
+        }
+      });
+  }
+  if (masterSwitch) {
+    _loadMasterSwitch();
+    masterSwitch.addEventListener('change', function () {
+      var enabled = masterSwitch.checked;
+      fetch(wecomApiBase() + '/api/wecom/master-switch', {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, typeof authHeaders === 'function' ? authHeaders() : {}),
+        body: JSON.stringify({ enabled: enabled })
+      }).then(function () {
+        if (masterLabel) {
+          masterLabel.textContent = enabled ? '已启用' : '已关闭';
+          masterLabel.style.color = enabled ? 'var(--accent)' : 'var(--text-muted)';
+        }
+      });
     });
   }
 
@@ -503,8 +535,23 @@
   document.getElementById('wecomDownloadTemplateBtn') && document.getElementById('wecomDownloadTemplateBtn').addEventListener('click', function(e) {
     e.preventDefault();
     var url = wecomApiBase() + '/api/wecom/material-template';
-    if (url.indexOf('/') === 0) url = window.location.origin + url;
-    window.open(url, '_blank');
+    var headers = typeof authHeaders === 'function' ? authHeaders() : {};
+    fetch(url, { headers: headers }).then(function(r) {
+      if (!r.ok) {
+        return r.json().then(function(j) { throw new Error((j && j.detail) ? String(j.detail) : ('HTTP ' + r.status)); });
+      }
+      return r.blob();
+    }).then(function(blob) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'wecom_materials_template.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    }).catch(function(err) {
+      alert((err && err.message) ? err.message : '下载失败');
+    });
   });
 
   var uploadInput = document.getElementById('wecomUploadMaterialsInput');
@@ -527,5 +574,56 @@
     });
   }
 
+  // ── 关键词通知规则 ──────────────────────────────────────────────
+  function loadNotifyRules() {
+    var listEl = document.getElementById('kfNotifyRuleList');
+    if (!listEl) return;
+    api('GET', '/api/wecom/kf/notify-rules').then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
+      var rules = (d && d.rules) || [];
+      if (!rules.length) {
+        listEl.innerHTML = '<div style="font-size:0.82rem;color:var(--text-muted);padding:0.3rem 0;">暂无规则</div>';
+        return;
+      }
+      listEl.innerHTML = rules.map(function(r) {
+        var statusColor = r.enabled ? '#4ade80' : 'var(--text-muted)';
+        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:0.3rem 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:0.82rem;">' +
+          '<div><span style="color:' + statusColor + ';font-weight:600;">[' + (r.enabled ? '启用' : '禁用') + ']</span> ' +
+          '关键词: <strong>' + escapeHtml(r.keyword) + '</strong> → 通知: <strong>' + escapeHtml(r.notify_userid) + '</strong></div>' +
+          '<div style="display:flex;gap:0.2rem;">' +
+          '<button type="button" class="btn btn-ghost btn-sm _nr-toggle" data-rid="' + r.id + '" data-en="' + (r.enabled ? '1' : '0') + '" style="font-size:0.72rem;">' + (r.enabled ? '禁用' : '启用') + '</button>' +
+          '<button type="button" class="btn btn-ghost btn-sm _nr-del" data-rid="' + r.id + '" style="font-size:0.72rem;color:#f87171;">删除</button>' +
+          '</div></div>';
+      }).join('');
+      listEl.querySelectorAll('._nr-toggle').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          var rid = parseInt(btn.getAttribute('data-rid'));
+          var nowEnabled = btn.getAttribute('data-en') === '1';
+          api('PUT', '/api/wecom/kf/notify-rules', { rule_id: rid, enabled: !nowEnabled }).then(function() { loadNotifyRules(); });
+        });
+      });
+      listEl.querySelectorAll('._nr-del').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+          if (confirm('删除此规则？')) {
+            api('DELETE', '/api/wecom/kf/notify-rules/' + btn.getAttribute('data-rid')).then(function() { loadNotifyRules(); });
+          }
+        });
+      });
+    });
+  }
+  var notifyAddBtn = document.getElementById('kfNotifyAddBtn');
+  if (notifyAddBtn) notifyAddBtn.addEventListener('click', function() {
+    var kw = (document.getElementById('kfNotifyKeyword') || {}).value || '';
+    var uid = (document.getElementById('kfNotifyUserid') || {}).value || '';
+    if (!kw.trim() || !uid.trim()) { alert('请填写关键词和通知人 userid'); return; }
+    api('POST', '/api/wecom/kf/notify-rules', { keyword: kw.trim(), notify_userid: uid.trim() })
+      .then(function(r) { return r.json(); })
+      .then(function() {
+        document.getElementById('kfNotifyKeyword').value = '';
+        document.getElementById('kfNotifyUserid').value = '';
+        loadNotifyRules();
+      });
+  });
+
   window.showWecomDetailView = showWecomDetailView;
+  window.loadNotifyRules = loadNotifyRules;
 })();

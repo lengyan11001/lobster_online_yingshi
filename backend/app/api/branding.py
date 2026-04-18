@@ -45,4 +45,7 @@ def get_branding() -> Dict[str, Any]:
     if not isinstance(cfg, dict):
         raise HTTPException(status_code=500, detail=f"Invalid brand config for mark: {mark}")
     out: Dict[str, Any] = {"mark": mark, **cfg}
+    parent = (getattr(settings, "lobster_parent_account", None) or "").strip()
+    if parent:
+        out["parent_account"] = parent
     return out

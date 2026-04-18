@@ -679,6 +679,7 @@
                         </div>
                         <div class="ecom-task-browser-actions">
                           <span class="ecom-preview-stage" id="ecomPreviewStatus">待提交</span>
+                          <button type="button" id="ecomPublishToShopBtn" class="btn btn-primary btn-sm" style="display:none;">发布到抖店</button>
                           <button type="button" id="ecomRefreshBtn" class="btn btn-ghost btn-sm">刷新状态</button>
                           <button type="button" id="ecomToggleTaskDrawerBtn" class="btn btn-ghost btn-sm">全部任务</button>
                         </div>
@@ -1038,14 +1039,20 @@
           <div id="content-wecom-detail" class="content-block">
             <div class="card">
               <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
-                <h3 style="margin:0;">企业微信客服 <span id="wecomDetailAppName" style="font-weight:normal;font-size:0.85rem;color:var(--text-muted);"></span></h3>
+                <div style="display:flex;align-items:center;gap:0.75rem;">
+                  <h3 style="margin:0;">企业微信客服 <span id="wecomDetailAppName" style="font-weight:normal;font-size:0.85rem;color:var(--text-muted);"></span></h3>
+                  <label style="display:flex;align-items:center;gap:0.3rem;cursor:pointer;font-size:0.82rem;" title="总开关：关闭后停止所有轮询和主动API调用">
+                    <input type="checkbox" id="wecomMasterSwitch" checked style="accent-color:var(--accent);width:16px;height:16px;">
+                    <span id="wecomMasterSwitchLabel" style="color:var(--accent);font-weight:600;">已启用</span>
+                  </label>
+                </div>
                 <button type="button" id="wecomDetailBackBtn" class="btn btn-ghost btn-sm">← 返回配置</button>
               </div>
               <div class="store-tabs" style="margin-top:0.75rem;">
                 <button type="button" class="wecom-detail-tab active" data-wecom-tab="messages">消息记录</button>
                 <button type="button" class="wecom-detail-tab" data-wecom-tab="contacts">通讯录</button>
                 <button type="button" class="wecom-detail-tab" data-wecom-tab="send">发消息</button>
-                <button type="button" class="wecom-detail-tab" data-wecom-tab="customers">客户配置</button>
+                <button type="button" class="wecom-detail-tab" data-wecom-tab="customers">客户列表</button>
                 <button type="button" class="wecom-detail-tab" data-wecom-tab="wechat-kf">微信客服</button>
                 <button type="button" class="wecom-detail-tab" data-wecom-tab="system">系统配置</button>
               </div>
@@ -1107,20 +1114,29 @@
                     <option value="user">发给个人</option>
                     <option value="party">发给部门</option>
                     <option value="group">发给群聊</option>
+                    <option value="kf_customer">发给客户</option>
                   </select>
                 </div>
                 <div class="form-group" style="margin-bottom:0.75rem;">
                   <label style="font-size:0.82rem;color:var(--text-muted);">接收者 <span id="wecomRecipientHint" style="font-size:0.75rem;color:var(--accent);"></span></label>
                   <div id="wecomSendRecipientWrap">
-                    <select id="wecomSendToUser" multiple size="6" style="width:100%;padding:0.3rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
-                      <option disabled>加载中…</option>
-                    </select>
+                    <div id="wecomSendToUser" style="width:100%;max-height:200px;overflow-y:auto;padding:0.3rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                      <span style="color:var(--text-muted);font-size:0.82rem;">加载中…</span>
+                    </div>
                     <select id="wecomSendToParty" multiple size="6" style="display:none;width:100%;padding:0.3rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
                       <option disabled>加载中…</option>
                     </select>
                     <input type="text" id="wecomSendChatId" placeholder="群聊 chatid" style="display:none;width:100%;padding:0.4rem 0.6rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                    <div id="wecomSendKfWrap" style="display:none;width:100%;">
+                      <select id="wecomSendKfGroupFilter" style="width:100%;margin-bottom:0.3rem;font-size:0.78rem;padding:0.2rem 0.3rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                        <option value="">全部客户</option>
+                      </select>
+                      <div id="wecomSendToKfCustomer" style="width:100%;max-height:200px;overflow-y:auto;padding:0.3rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                        <span style="color:var(--text-muted);font-size:0.82rem;">加载中…</span>
+                      </div>
+                    </div>
                   </div>
-                  <div style="margin-top:0.3rem;font-size:0.78rem;color:var(--text-muted);">按住 Ctrl 或 Shift 可多选；发给群聊需先创建群聊获得 chatid</div>
+                  <div id="wecomRecipientHintText" style="margin-top:0.3rem;font-size:0.78rem;color:var(--text-muted);">按住 Ctrl 或 Shift 可多选；发给群聊需先创建群聊获得 chatid</div>
                 </div>
                 <div class="form-group" style="margin-bottom:0.75rem;">
                   <label style="font-size:0.82rem;color:var(--text-muted);">消息内容</label>
@@ -1196,14 +1212,18 @@
                 </div>
               </div>
               <div id="wecomTabCustomers" class="wecom-tab-panel" style="display:none;margin-top:1rem;">
+                <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:0.75rem;">微信客服咨询客户列表，可按分组筛选和管理。</p>
                 <div style="display:flex;gap:0.5rem;flex-wrap:wrap;align-items:center;margin-bottom:0.75rem;">
-                  <select id="wecomCustConfigFilter" style="display:none;"><option value="">全部应用</option></select>
-                  <input type="text" id="wecomCustNameFilter" placeholder="姓名" style="padding:0.35rem 0.5rem;font-size:0.82rem;width:100px;">
-                  <input type="text" id="wecomCustPhoneFilter" placeholder="手机" style="padding:0.35rem 0.5rem;font-size:0.82rem;width:120px;">
-                  <button type="button" id="wecomCustSearchBtn" class="btn btn-ghost btn-sm">查询</button>
-                  <button type="button" id="wecomCustAddBtn" class="btn btn-primary btn-sm">+ 添加客户</button>
+                  <select id="kfCustTabKfFilter" style="padding:0.35rem 0.5rem;font-size:0.82rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                    <option value="">全部客服账号</option>
+                  </select>
+                  <select id="kfCustTabGroupFilter" style="padding:0.35rem 0.5rem;font-size:0.82rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                    <option value="">全部分组</option>
+                  </select>
+                  <input type="text" id="kfCustTabSearch" placeholder="搜索昵称/ID" style="padding:0.35rem 0.5rem;font-size:0.82rem;width:140px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                  <button type="button" id="kfCustTabRefreshBtn" class="btn btn-ghost btn-sm">刷新</button>
                 </div>
-                <div id="wecomCustomerList" style="min-height:200px;"></div>
+                <div id="kfCustTabList" style="min-height:200px;"></div>
               </div>
               <!-- 微信客服 Tab -->
               <div id="wecomTabWechatKf" class="wecom-tab-panel" style="display:none;margin-top:1rem;">
@@ -1215,12 +1235,35 @@
                 <!-- 客服账号列表 -->
                 <div id="kfAccountList" style="margin-bottom:1rem;"></div>
                 <!-- 客服会话区域（选择客服账号后展示） -->
+                <!-- 分组管理弹窗 -->
+                <div id="kfGroupModal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:1000;background:rgba(0,0,0,0.5);align-items:center;justify-content:center;">
+                  <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:1.2rem;width:340px;max-height:70vh;overflow-y:auto;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
+                      <h4 style="margin:0;font-size:0.95rem;color:var(--text);">客户分组管理</h4>
+                      <button type="button" id="kfGroupModalClose" class="btn btn-ghost btn-sm" style="font-size:1rem;">✕</button>
+                    </div>
+                    <div id="kfGroupList" style="margin-bottom:0.8rem;"></div>
+                    <div style="display:flex;gap:0.3rem;">
+                      <input type="text" id="kfNewGroupName" placeholder="新分组名称" style="flex:1;font-size:0.82rem;padding:0.3rem 0.5rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                      <button type="button" id="kfCreateGroupBtn" class="btn btn-primary btn-sm" style="font-size:0.8rem;">创建</button>
+                    </div>
+                  </div>
+                </div>
+
                 <div id="kfChatArea" style="display:none;">
                   <div style="display:flex;gap:0;min-height:480px;height:calc(100vh - 360px);max-height:660px;">
                     <div id="kfCustomerListWrap" style="width:240px;flex-shrink:0;border:1px solid var(--border);border-radius:var(--radius) 0 0 var(--radius);overflow:hidden;display:flex;flex-direction:column;background:rgba(255,255,255,0.02);">
                       <div style="padding:0.4rem 0.75rem;font-size:0.85rem;font-weight:600;color:var(--text);border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
                         <span>客户列表</span>
-                        <button type="button" id="kfRefreshCustomersBtn" class="btn btn-ghost btn-sm" style="font-size:0.72rem;padding:0.15rem 0.4rem;">刷新</button>
+                        <div style="display:flex;gap:0.2rem;align-items:center;">
+                          <button type="button" id="kfManageGroupsBtn" class="btn btn-ghost btn-sm" style="font-size:0.72rem;padding:0.15rem 0.4rem;" title="管理分组">分组</button>
+                          <button type="button" id="kfRefreshCustomersBtn" class="btn btn-ghost btn-sm" style="font-size:0.72rem;padding:0.15rem 0.4rem;">刷新</button>
+                        </div>
+                      </div>
+                      <div style="padding:0.25rem 0.5rem;border-bottom:1px solid var(--border);">
+                        <select id="kfGroupFilter" style="width:100%;font-size:0.78rem;padding:0.2rem 0.3rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                          <option value="">全部客户</option>
+                        </select>
                       </div>
                       <div id="kfCustomerList" style="flex:1;overflow-y:auto;"></div>
                     </div>
@@ -1249,7 +1292,19 @@
                   <h4 style="margin:0 0 0.5rem 0;font-size:0.95rem;">企业与产品</h4>
                   <div id="wecomEnterpriseList" style="font-size:0.85rem;"></div>
                 </div>
-                <div><a href="#" id="wecomDetailToConfigLink" style="color:var(--primary);font-size:0.9rem;">管理企微应用配置 →</a></div>
+                <div style="margin-bottom:1rem;"><a href="#" id="wecomDetailToConfigLink" style="color:var(--primary);font-size:0.9rem;">管理企微应用配置 →</a></div>
+
+                <!-- 关键词通知规则 -->
+                <div style="margin-top:1.5rem;padding-top:1rem;border-top:1px solid var(--border);">
+                  <h4 style="margin:0 0 0.5rem 0;font-size:0.95rem;">关键词通知规则</h4>
+                  <p style="font-size:0.78rem;color:var(--text-muted);margin-bottom:0.75rem;">客户发送包含关键词的消息时，自动通过企微应用消息通知指定人员。</p>
+                  <div id="kfNotifyRuleList" style="margin-bottom:0.75rem;"></div>
+                  <div style="display:flex;gap:0.3rem;flex-wrap:wrap;align-items:center;">
+                    <input type="text" id="kfNotifyKeyword" placeholder="关键词" style="width:100px;padding:0.3rem 0.5rem;font-size:0.82rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                    <input type="text" id="kfNotifyUserid" placeholder="通知人 userid" style="width:120px;padding:0.3rem 0.5rem;font-size:0.82rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                    <button type="button" id="kfNotifyAddBtn" class="btn btn-primary btn-sm" style="font-size:0.8rem;">添加规则</button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1936,6 +1991,28 @@
     </div>
   </div>
 
+  <!-- xSkill 模型与定价 Modal -->
+  <div id="xskillModelsModal" class="modal-mask">
+    <div class="modal" style="max-width:820px;max-height:85vh;display:flex;flex-direction:column;padding:1.25rem;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;flex-shrink:0;">
+        <h4 style="margin:0;font-size:1.05rem;">速推 · 模型与定价</h4>
+        <button type="button" id="xskillModelsClose" class="btn btn-ghost btn-sm" style="font-size:1.1rem;padding:0.2rem 0.5rem;">&times;</button>
+      </div>
+      <div style="display:flex;gap:0.5rem;margin-bottom:0.6rem;flex-shrink:0;flex-wrap:wrap;align-items:center;" id="xskillModelsTabs">
+        <button type="button" class="btn btn-sm xm-tab active" data-cat="all">全部</button>
+        <button type="button" class="btn btn-sm xm-tab" data-cat="video">视频</button>
+        <button type="button" class="btn btn-sm xm-tab" data-cat="image">图片</button>
+        <button type="button" class="btn btn-sm xm-tab" data-cat="audio">音频</button>
+        <input type="text" id="xskillModelsSearch" placeholder="搜索模型名称或 ID …" style="margin-left:auto;padding:0.3rem 0.6rem;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,0.04);color:var(--text);font-size:0.8rem;width:200px;outline:none;">
+      </div>
+      <div style="overflow-y:auto;flex:1;-webkit-overflow-scrolling:touch;" id="xskillModelsBody">
+        <div style="text-align:center;padding:2rem;color:var(--text-muted);">加载中…</div>
+      </div>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding-top:0.6rem;flex-shrink:0;font-size:0.78rem;color:var(--text-muted);" id="xskillModelsPager">
+      </div>
+    </div>
+  </div>
+
   <!-- xSkill Token Modal -->
   <div id="xskillModal" class="modal-mask">
     <div class="modal" style="max-width:440px;">
@@ -2116,10 +2193,10 @@
   <script src="/static/js/youtube-accounts.js"></script>
   <script src="/static/js/twilio-whatsapp-detail.js"></script>
   <script src="/static/js/wecom-config.js"></script>
-  <script src="/static/js/wecom-detail.js"></script>
-  <script src="/static/js/wecom-kf.js"></script>
+  <script src="/static/js/wecom-detail.js?v=20260416e"></script>
+  <script src="/static/js/wecom-kf.js?v=20260416e"></script>
   <script src="/static/js/comfly-ecommerce-detail.js"></script>
-  <script src="/static/js/wecom-contacts.js"></script>
+  <script src="/static/js/wecom-contacts.js?v=20260416i"></script>
   <script src="/static/js/publish.js"></script>
   <script src="/static/js/production.js"></script>
   <script src="/static/js/sysconfig.js"></script>

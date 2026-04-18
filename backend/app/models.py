@@ -482,6 +482,16 @@ class KfAccount(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 
+class KfCustomerGroup(Base):
+    """客服客户分组。"""
+    __tablename__ = "wecom_kf_customer_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
 class KfCustomer(Base):
     """微信客服会话客户。"""
     __tablename__ = "wecom_kf_customers"
@@ -492,7 +502,21 @@ class KfCustomer(Base):
     external_userid: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     nickname: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     avatar: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    group_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, index=True)
     last_msg_time: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class KfNotifyRule(Base):
+    """客服关键词通知规则：客户消息匹配关键词时通知企微内部人员。"""
+    __tablename__ = "wecom_kf_notify_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    keyword: Mapped[str] = mapped_column(String(128), nullable=False)
+    notify_userid: Mapped[str] = mapped_column(String(128), nullable=False)
+    message_template: Mapped[str] = mapped_column(Text, nullable=False, default="客户 {customer} 发送了包含关键词「{keyword}」的消息：{content}")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 

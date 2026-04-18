@@ -33,6 +33,7 @@ function applyBrandingFromApi() {
     .then(function(b) {
       if (!b || typeof b !== 'object') return;
       if (b.mark) window.__LOBSTER_BRAND_MARK = b.mark;
+      if (b.parent_account) window.__LOBSTER_PARENT_ACCOUNT = b.parent_account;
       if (b.document_title) document.title = b.document_title;
       var icons = b.icons || {};
       var fav = document.getElementById('brandFavicon');
@@ -72,10 +73,10 @@ function _startFubeiPoll(outTradeNo) {
         if (d && d.status === 'paid') {
           clearInterval(_fubeiPollTimer); _fubeiPollTimer = null;
           var el = document.getElementById('fubeiPollStatus');
-          if (el) { el.style.color = '#27ae60'; el.textContent = '支付成功！已到账 ' + (d.credits || '') + ' 积分'; }
+          if (el) { el.style.color = '#27ae60'; el.textContent = '支付成功！已到账 ' + (d.credits || '') + ' 算力'; }
           if (typeof loadSutuiBalance === 'function') loadSutuiBalance();
           var balanceEl = document.getElementById('billingBalance');
-          if (balanceEl) fetch(API_BASE + '/auth/me', { headers: authHeaders() }).then(function(r) { return r.json(); }).then(function(me) { balanceEl.textContent = '我的积分：' + (me && me.credits != null ? me.credits : '--'); });
+          if (balanceEl) fetch(API_BASE + '/auth/me', { headers: authHeaders() }).then(function(r) { return r.json(); }).then(function(me) { balanceEl.textContent = '我的算力：' + (me && me.credits != null ? me.credits : '--'); });
         }
       }).catch(function() {});
   }, 3000);
@@ -88,7 +89,7 @@ function billingPackageYuan(p) {
   if (p.price_fen != null && p.price_fen !== '') return Number(p.price_fen) / 100;
   return 0;
 }
-/** 每元人民币可得积分（展示） */
+/** 每元人民币可得算力（展示） */
 function billingCreditsPerYuan(p) {
   var yuan = billingPackageYuan(p);
   var c = Number(p.credits || 0);
@@ -101,10 +102,10 @@ function billingRatioHintLinesHtml(packages) {
   packages.forEach(function(p) {
     var per = billingCreditsPerYuan(p);
     if (per == null) return;
-    parts.push(billingPackageYuan(p) + ' 元档约 ' + per + ' 积分/元');
+    parts.push(billingPackageYuan(p) + ' 元档约 ' + per + ' 算力/元');
   });
   if (!parts.length) return '';
-  return '<p style="margin:0.45rem 0 0 0;font-size:0.82rem;color:var(--text-muted);">折算参考：' + parts.join('；') + '。支付成功后以实际到账积分为准。</p>';
+  return '<p style="margin:0.45rem 0 0 0;font-size:0.82rem;color:var(--text-muted);">折算参考：' + parts.join('；') + '。支付成功后以实际到账算力为准。</p>';
 }
 function billingRatioHintPlainText(packages) {
   if (!packages || !packages.length) return '';
@@ -112,10 +113,10 @@ function billingRatioHintPlainText(packages) {
   packages.forEach(function(p) {
     var per = billingCreditsPerYuan(p);
     if (per == null) return;
-    parts.push(billingPackageYuan(p) + ' 元档约 ' + per + ' 积分/元');
+    parts.push(billingPackageYuan(p) + ' 元档约 ' + per + ' 算力/元');
   });
   if (!parts.length) return '';
-  return '折算参考：' + parts.join('；') + '。支付成功后以实际到账积分为准。';
+  return '折算参考：' + parts.join('；') + '。支付成功后以实际到账算力为准。';
 }
 
 function loadLoginCaptcha() {
@@ -478,9 +479,10 @@ if (registerForm) {
     if (!smsCode) { showMsg(msgEl, '请填写短信验证码', true); return; }
     if (password.length < 6) { showMsg(msgEl, '密码至少 6 位', true); return; }
 
-    function postRegisterPhone(brandMark) {
+    function postRegisterPhone(brandMark, parentAccount) {
       var payload = { phone: phone, code: smsCode, password: password };
       if (brandMark) payload.brand_mark = brandMark;
+      if (parentAccount) payload.parent_account = parentAccount;
       fetch(API_BASE + '/auth/register-phone', {
         method: 'POST',
         headers: {
@@ -507,19 +509,25 @@ if (registerForm) {
     }
 
     var bm = (typeof window.__LOBSTER_BRAND_MARK !== 'undefined' && window.__LOBSTER_BRAND_MARK) ? String(window.__LOBSTER_BRAND_MARK) : '';
+    var pa = (typeof window.__LOBSTER_PARENT_ACCOUNT !== 'undefined' && window.__LOBSTER_PARENT_ACCOUNT) ? String(window.__LOBSTER_PARENT_ACCOUNT) : '';
     if (bm) {
-      postRegisterPhone(bm);
+      postRegisterPhone(bm, pa);
       return;
     }
     var localBase = (typeof LOCAL_API_BASE !== 'undefined' && LOCAL_API_BASE) ? String(LOCAL_API_BASE).replace(/\/$/, '') : '';
     if (!localBase) {
-      postRegisterPhone('');
+      postRegisterPhone('', pa);
       return;
     }
     fetch(localBase + '/api/branding', { credentials: 'same-origin' })
       .then(function(r) { return r.ok ? r.json() : {}; })
-      .then(function(b) { postRegisterPhone((b && b.mark) ? String(b.mark) : ''); })
-      .catch(function() { postRegisterPhone(''); });
+      .then(function(b) {
+        var mark = (b && b.mark) ? String(b.mark) : '';
+        var parent = (b && b.parent_account) ? String(b.parent_account) : pa;
+        if (parent) window.__LOBSTER_PARENT_ACCOUNT = parent;
+        postRegisterPhone(mark, parent);
+      })
+      .catch(function() { postRegisterPhone('', pa); });
   });
 }
 
@@ -578,6 +586,9 @@ function loadDashboard() {
         var w = document.getElementById('sutuiBalanceWrap');
         if (w) w.style.display = 'none';
       }
+      var navAgent = document.getElementById('navAgent');
+      if (navAgent) navAgent.style.display = d.is_agent ? '' : 'none';
+      window.__currentUserIsAgent = !!d.is_agent;
       if (typeof window._applyWecomConfigHash === 'function' && location.hash && location.hash.indexOf('wecom') !== -1) window._applyWecomConfigHash();
     });
 }
@@ -797,6 +808,7 @@ document.querySelectorAll('.nav-left-item').forEach(function(el) {
     if (view === 'messenger-config' && typeof loadMessengerConfigPage === 'function') loadMessengerConfigPage();
     if (view === 'youtube-accounts' && typeof loadYoutubeAccountsPage === 'function') loadYoutubeAccountsPage();
     if (view === 'meta-social' && typeof loadMetaSocialPage === 'function') loadMetaSocialPage();
+    if (view === 'agent' && typeof loadAgentSubUsers === 'function') loadAgentSubUsers();
   });
 });
 
@@ -811,12 +823,12 @@ function loadSutuiBalance() {
   if (!wrap || !textEl) return;
   wrap.style.display = 'flex';
   if (USE_INDEPENDENT_AUTH) {
-    textEl.textContent = '积分：加载中…';
+    textEl.textContent = '算力：加载中…';
     if (rechargeBtn) { rechargeBtn.style.display = ''; rechargeBtn.href = '#'; rechargeBtn.textContent = '充值'; }
     fetch(API_BASE + '/auth/me', { headers: authHeaders() })
       .then(function(r) { return r.json(); })
-      .then(function(d) { textEl.textContent = '积分：' + (d && d.credits != null ? d.credits : '--'); })
-      .catch(function() { textEl.textContent = '积分：--'; });
+      .then(function(d) { textEl.textContent = '算力：' + (d && d.credits != null ? d.credits : '--'); })
+      .catch(function() { textEl.textContent = '算力：--'; });
     return;
   }
   textEl.textContent = '余额：加载中…';
@@ -894,7 +906,7 @@ function loadBillingView() {
         if (orders.length === 0) {
           rechargeListEl.innerHTML = '<p class="meta" style="padding:1rem;">暂无充值记录。</p>';
         } else {
-          var rh = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:0.5rem;">时间</th><th style="text-align:left;padding:0.5rem;">订单号</th><th style="text-align:right;padding:0.5rem;">金额</th><th style="text-align:right;padding:0.5rem;">积分</th><th style="text-align:left;padding:0.5rem;">状态</th></tr></thead><tbody>';
+          var rh = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:0.5rem;">时间</th><th style="text-align:left;padding:0.5rem;">订单号</th><th style="text-align:right;padding:0.5rem;">金额</th><th style="text-align:right;padding:0.5rem;">算力</th><th style="text-align:left;padding:0.5rem;">状态</th></tr></thead><tbody>';
           orders.forEach(function(o) {
             var amt = (o.amount_fen && o.amount_fen > 0) ? (o.amount_fen / 100).toFixed(2) + ' 元' : (o.amount_yuan != null ? o.amount_yuan + ' 元' : '-');
             var time = (o.paid_at_beijing || o.created_at_beijing || '').trim() ||
@@ -929,11 +941,11 @@ function loadBillingView() {
       })
       .then(function(pack) {
         if (!pack.ok) {
-          var msg = '加载积分流水失败（HTTP ' + pack.status + '）';
+          var msg = '加载算力流水失败（HTTP ' + pack.status + '）';
           var det = (pack.d && (pack.d.detail || pack.d.message)) ? String(pack.d.detail || pack.d.message) : '';
           if (det) msg += '：' + det.slice(0, 400);
           else if (pack.status === 404) {
-            msg += '：本地址无积分流水接口。若用本机 IP 打开页面，请升级 lobster_online 后端（含 credit-history 转发），或用 ?api= 指向认证中心域名后重新登录。';
+            msg += '：本地址无算力流水接口。若用本机 IP 打开页面，请升级 lobster_online 后端（含 credit-history 转发），或用 ?api= 指向认证中心域名后重新登录。';
           }
           creditHistoryEl.innerHTML = '<p class="meta err" style="padding:1rem;">' + escapeHtml(msg) + '</p>';
           creditPagerEl.innerHTML = '';
@@ -944,7 +956,7 @@ function loadBillingView() {
         var history = data.items || [];
         var total = data.total || 0;
         if (history.length === 0) {
-          creditHistoryEl.innerHTML = '<p class="meta" style="padding:1rem;">暂无积分变动。</p>';
+          creditHistoryEl.innerHTML = '<p class="meta" style="padding:1rem;">暂无算力变动。</p>';
         } else {
           var html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="border-bottom:1px solid var(--border);"><th style="text-align:left;padding:0.5rem;">时间</th><th style="text-align:left;padding:0.5rem;">类型</th><th style="text-align:right;padding:0.5rem;">变动</th><th style="text-align:left;padding:0.5rem;">说明</th></tr></thead><tbody>';
           function billingConsumptionTypeLabel(et, hType) {
@@ -987,7 +999,7 @@ function loadBillingView() {
         if (prevBtn && billingConsumptionPage > 1) prevBtn.onclick = function() { loadConsumptionPage(billingConsumptionPage - 1); };
         if (nextBtn && billingConsumptionPage < totalPages) nextBtn.onclick = function() { loadConsumptionPage(billingConsumptionPage + 1); };
       })
-      .catch(function() { creditHistoryEl.innerHTML = '<p class="meta err" style="padding:1rem;">网络错误，无法加载积分流水。</p>'; creditPagerEl.innerHTML = ''; });
+      .catch(function() { creditHistoryEl.innerHTML = '<p class="meta err" style="padding:1rem;">网络错误，无法加载算力流水。</p>'; creditPagerEl.innerHTML = ''; });
   }
   loadRechargePage(1);
   loadConsumptionPage(1);
@@ -1019,13 +1031,13 @@ function loadBillingView() {
         var packages = d.credit_packages || [];
         var html = '';
         if (packages.length) {
-          html += '<p style="margin:0 0 0.35rem 0;"><strong>算力套餐（积分）</strong>：</p><ul style="margin:0;padding-left:1.25rem;">';
+          html += '<p style="margin:0 0 0.35rem 0;"><strong>算力套餐</strong>：</p><ul style="margin:0;padding-left:1.25rem;">';
           packages.forEach(function(p) {
-            html += '<li>' + escapeHtml(p.label || (p.price_yuan + '元 - ' + p.credits + '积分')) + '</li>';
+            html += '<li>' + escapeHtml(p.label || (p.price_yuan + '元 - ' + p.credits + '算力')) + '</li>';
           });
           html += '</ul>';
         } else {
-          html = '<p style="margin:0;"><strong>算力套餐</strong>：198元/20000积分、498元/50000积分、998元/120000积分。</p>';
+          html = '<p style="margin:0;"><strong>算力套餐</strong>：198元/20000算力、498元/50000算力、998元/120000算力。</p>';
         }
         pricingContent.innerHTML = html;
       })
@@ -1035,7 +1047,7 @@ function loadBillingView() {
     if (typeof EDITION !== 'undefined' && EDITION !== 'online') {
       balanceEl.textContent = '单机版无速推余额，仅显示本机能力调用记录。';
     } else if (USE_INDEPENDENT_AUTH) {
-      balanceEl.textContent = '我的积分：加载中…';
+      balanceEl.textContent = '我的算力：加载中…';
     } else {
       balanceEl.textContent = '速推余额：加载中…';
     }
@@ -1052,13 +1064,13 @@ function loadBillingView() {
   if (USE_INDEPENDENT_AUTH && EDITION === 'online') {
     fetch(API_BASE + '/auth/me', { headers: authHeaders() })
       .then(function(r) { return r.json(); })
-      .then(function(d) { if (balanceEl) balanceEl.textContent = '我的积分：' + (d && d.credits != null ? d.credits : '--'); })
-      .catch(function() { if (balanceEl) balanceEl.textContent = '我的积分：--'; });
+      .then(function(d) { if (balanceEl) balanceEl.textContent = '我的算力：' + (d && d.credits != null ? d.credits : '--'); })
+      .catch(function() { if (balanceEl) balanceEl.textContent = '我的算力：--'; });
     var rechargeBlock = document.getElementById('rechargeBlock');
     if (rechargeBlock) {
       rechargeBlock.style.display = '';
       var rechargeTitle = rechargeBlock.querySelector('h4');
-      if (rechargeTitle) rechargeTitle.textContent = '积分充值';
+      if (rechargeTitle) rechargeTitle.textContent = '算力充值';
       fetch(API_BASE + '/api/recharge/packages', { headers: authHeaders() })
         .then(function(r) { return r.ok ? r.json() : null; })
         .then(function(opts) {
@@ -1067,7 +1079,7 @@ function loadBillingView() {
           if (amountSel && opts && Array.isArray(opts.packages) && opts.packages.length) {
             amountSel.innerHTML = opts.packages.map(function(p, i) {
               var py = billingPackageYuan(p);
-              var lab = p.label || (py + '元 - ' + p.credits + '积分');
+              var lab = p.label || (py + '元 - ' + p.credits + '算力');
               return '<option value="' + i + '" data-credits="' + (p.credits || 0) + '">' + escapeHtml(lab) + '</option>';
             }).join('');
           }

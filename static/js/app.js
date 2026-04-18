@@ -1,5 +1,5 @@
 /** 定死：公网 lobster_server（登录/验证码/auth/me；与 pack_bundle AUTH_SERVER_BASE 一致；走 HTTPS 与 Nginx 443） */
-var LOBSTER_SERVER_PUBLIC = 'http://42.194.209.150';
+var LOBSTER_SERVER_PUBLIC = 'https://bhzn.top';
 
 (function setApiBaseFromUrl() {
   // 本机回环：优先用当前页 origin（含真实端口）。port 为空时（如默认 80）不能误写成 :8000，否则会连错端口 → Failed to fetch
@@ -17,7 +17,9 @@ var LOBSTER_SERVER_PUBLIC = 'http://42.194.209.150';
   var isLoopbackHost = /^(localhost|127\.0\.0\.1)(:\d+)?$/i.test(window.location.host || '');
   var serverDefault = isLoopbackHost ? LOBSTER_SERVER_PUBLIC : (window.location.origin || LOBSTER_SERVER_PUBLIC);
   var p = new URLSearchParams(window.location.search);
-  var api = (p.get('api') || '').trim() || (localStorage.getItem('lobster_api_base') || '').trim() || serverDefault;
+  var cached = (localStorage.getItem('lobster_api_base') || '').trim();
+  if (cached && /42\.194\.209\.150/.test(cached)) { cached = ''; localStorage.removeItem('lobster_api_base'); }
+  var api = (p.get('api') || '').trim() || cached || serverDefault;
   if (api) localStorage.setItem('lobster_api_base', api);
   window.__API_BASE = api;
 

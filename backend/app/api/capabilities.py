@@ -1,6 +1,6 @@
 """能力网关（在线客户端后端）。
 
-速推类能力：用户积分预扣/结算/退款的 **唯一业务编排点** 在 **lobster_server** 的 MCP
+速推类能力：用户算力预扣/结算/退款的 **唯一业务编排点** 在 **lobster_server** 的 MCP
 ``invoke_capability``（调用速推前在该处完成 pre-deduct 等）。本机 MCP 经 mcp-gateway 转发，**不经**本路由对速推做计费。
 
 本文件 POST /capabilities/pre-deduct|record-call|refund **不做本地加减分**，仅原样转发认证中心（浏览器/旧客户端兼容）；
@@ -124,7 +124,7 @@ class RecordCallIn(BaseModel):
     sutui_token_ref: Optional[str] = None
 
 
-@router.post("/capabilities/pre-deduct", summary="预扣积分（代理到认证中心）")
+@router.post("/capabilities/pre-deduct", summary="预扣算力（代理到认证中心）")
 async def pre_deduct(request: Request):
     """代理到认证中心预扣；一般由 MCP 调用。"""
     base = _auth_server_base()
@@ -149,7 +149,7 @@ class RefundIn(BaseModel):
     credits: float
 
 
-@router.post("/capabilities/refund", summary="退还预扣积分（代理到认证中心）")
+@router.post("/capabilities/refund", summary="退还预扣算力（代理到认证中心）")
 async def refund_credits(body: RefundIn, request: Request):
     base = _auth_server_base()
     h = _proxy_headers(request)
@@ -164,7 +164,7 @@ async def refund_credits(body: RefundIn, request: Request):
     return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 
-@router.post("/capabilities/record-call", summary="记录能力调用并扣积分（代理到认证中心）")
+@router.post("/capabilities/record-call", summary="记录能力调用并扣算力（代理到认证中心）")
 async def record_call(body: RecordCallIn, request: Request):
     base = _auth_server_base()
     async with httpx.AsyncClient(timeout=15.0) as client:

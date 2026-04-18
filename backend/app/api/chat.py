@@ -53,19 +53,24 @@ def _get_comfly_image_models() -> list[str]:
     auth_base = (getattr(settings, "auth_server_base", None) or "").strip().rstrip("/")
     if not auth_base:
         return _comfly_image_models_cache
-    try:
-        import httpx as _hx
-        r = _hx.get(f"{auth_base}/capabilities/comfly-pricing", timeout=5.0)
-        if r.status_code == 200:
-            data = r.json()
-            models = data.get("models") or {}
-            result = [k for k, v in models.items() if isinstance(v, dict) and v.get("api_format") == "dalle"]
-            _comfly_image_models_cache = result
-            _comfly_image_models_ts = now
-            logger.debug("[CHAT] comfly image models refreshed: %s", result)
-            return result
-    except Exception as e:
-        logger.debug("[CHAT] comfly-pricing fetch failed: %s", e)
+    for _attempt in range(2):
+        try:
+            import httpx as _hx
+            r = _hx.get(f"{auth_base}/capabilities/comfly-pricing", timeout=8.0)
+            if r.status_code == 200:
+                data = r.json()
+                models = data.get("models") or {}
+                result = [k for k, v in models.items() if isinstance(v, dict) and v.get("api_format") == "dalle"]
+                _comfly_image_models_cache = result
+                _comfly_image_models_ts = now
+                logger.info("[CHAT] comfly image models refreshed: %s", result)
+                return result
+            else:
+                logger.warning("[CHAT] comfly-pricing 非 200: status=%s", r.status_code)
+        except Exception as e:
+            logger.warning("[CHAT] comfly-pricing fetch failed (attempt %d): %s", _attempt + 1, e)
+        if _attempt == 0:
+            time.sleep(0.5)
     return _comfly_image_models_cache
 router = APIRouter()
 
@@ -1077,6 +1082,34 @@ def _get_attachment_public_urls(
     return _resolve_attachment_urls_strict(attachment_asset_ids, request, db, user_id)
 
 
+_TVC_KEYWORDS_RE = re.compile(r"(?:爆款|tvc|带货视频|做tvc|用tvc)", re.IGNORECASE)
+
+
+def _redirect_video_generate_to_daihuo_if_tvc(
+    args: Dict[str, Any],
+    user_message: str,
+) -> None:
+    """用户消息含 TVC/爆款/带货 关键词但 LLM 误走 video.generate 时，自动重定向到 comfly.veo.daihuo_pipeline。"""
+    if not args or (args.get("capability_id") or "").strip() != "video.generate":
+        return
+    if not (user_message and _TVC_KEYWORDS_RE.search(user_message)):
+        return
+    pl = args.get("payload") if isinstance(args.get("payload"), dict) else {}
+    asset_id = (pl.get("asset_id") or "").strip()
+    image_url = (pl.get("image_url") or "").strip()
+    args["capability_id"] = "comfly.veo.daihuo_pipeline"
+    new_pl: Dict[str, Any] = {"action": "start_pipeline", "auto_save": True}
+    if asset_id:
+        new_pl["asset_id"] = asset_id
+    if image_url:
+        new_pl["image_url"] = image_url
+    args["payload"] = new_pl
+    logger.info(
+        "[CHAT] 用户消息含TVC关键词，已将 video.generate 重定向到 comfly.veo.daihuo_pipeline asset_id=%s",
+        asset_id or image_url or "-",
+    )
+
+
 def _ensure_daihuo_pipeline_asset_or_url(
     args: Dict[str, Any],
     attachment_asset_ids: Optional[List[str]],
@@ -1270,7 +1303,7 @@ _MAX_IMAGE_GENERATE_PROMPT_CHARS = 4000
 _IMAGE_16_9_RE = re.compile(r"16\s*[:：]\s*9")
 
 
-_DEFAULT_VIDEO_GENERATE_DURATION = 5
+_DEFAULT_VIDEO_GENERATE_DURATION = 4
 
 def _is_known_video_model_without_slash(model_id: str) -> bool:
     """model_id 不含 / 但是已知的合法视频模型名（别名表或常见模式匹配）。"""
@@ -1321,13 +1354,26 @@ def _ensure_image_generate_default_model(args: Dict[str, Any]) -> None:
     raw_model = (inner.get("model") or inner.get("model_id") or "").strip()
     if raw_model and "/" in raw_model:
         return
-    if raw_model and raw_model.lower() in {m.lower() for m in _get_comfly_image_models()}:
+    if raw_model and raw_model.lower() in _IMAGE_MODEL_ALIASES:
+        canonical = _IMAGE_MODEL_ALIASES[raw_model.lower()]
+        inner["model"] = canonical
+        logger.info("[CHAT] image.generate model「%s」为已知别名，映射为 %s", raw_model, canonical)
+        return
+    comfly_models = _get_comfly_image_models()
+    if raw_model and raw_model.lower() in {m.lower() for m in comfly_models}:
         logger.info("[CHAT] image.generate model「%s」为 Comfly 模型，保留原值", raw_model)
         return
     if raw_model and raw_model.lower().startswith("jimeng-"):
         return
+    if raw_model and not comfly_models:
+        logger.warning(
+            "[CHAT] image.generate model「%s」不含 / 且 Comfly 模型列表为空（fetch 可能失败），"
+            "保留原值交由服务端判断", raw_model,
+        )
+        return
     if raw_model:
-        logger.info("[CHAT] image.generate model「%s」不含 / 疑似幻觉模型名，已替换为 model=%s", raw_model, _DEFAULT_IMAGE_GENERATE_MODEL)
+        logger.info("[CHAT] image.generate model「%s」不含 / 且不在 Comfly 列表 %s 中，已替换为 model=%s",
+                    raw_model, comfly_models, _DEFAULT_IMAGE_GENERATE_MODEL)
     inner["model"] = _DEFAULT_IMAGE_GENERATE_MODEL
     logger.info(
         "[CHAT] image.generate 未传 model，已默认 model=%s",
@@ -2224,9 +2270,15 @@ async def _poll_daihuo_job_http(
         st = (last.get("status") or "").strip().lower()
         if progress_cb:
             try:
+                if st == "completed":
+                    poll_msg = f"✓ 爆款TVC 生成完成（{waited}秒）"
+                elif st == "failed":
+                    poll_msg = f"✗ 爆款TVC 生成失败（{waited}秒）"
+                else:
+                    poll_msg = f"爆款TVC 生成中…（{waited}秒）"
                 ev: Dict[str, Any] = {
                     "type": "task_poll",
-                    "message": f"爆款TVC 生成中…（{waited}秒）",
+                    "message": poll_msg,
                     "task_id": resume_token,
                     "result_hint": _daihuo_job_progress_hint(last) or st or "running",
                 }
@@ -2683,6 +2735,8 @@ async def _exec_tool(
         timeout = 40 * 60.0
     elif name == "invoke_capability" and (args.get("capability_id") or "").strip() == "image.generate":
         timeout = 25 * 60.0
+    elif name in ("publish_content", "publish_youtube_video"):
+        timeout = 300.0  # Playwright 浏览器自动化发布可能超过 120s
     elif name == "sync_creator_publish_data":
         timeout = 45 * 60.0  # 多账号 Playwright 同步作品数据
     elif name == "get_creator_publish_data":
@@ -4820,6 +4874,7 @@ async def _chat_openai(
                     a = _correct_video_to_image_if_user_asked_image(a, last_user_content)
                     _mismatch_err = _detect_model_capability_mismatch(a)
                     if not _mismatch_err:
+                        _redirect_video_generate_to_daihuo_if_tvc(a, last_user_content)
                         _inject_video_media_urls(a, attachment_urls)
                         _infer_video_model_from_user_text(a, last_user_content, bool(attachment_urls))
                         _resolve_video_payload_asset_ids_to_urls(a, request, db, user_id)
@@ -5002,6 +5057,7 @@ async def _chat_openai(
                     tc_info["arguments"] = _correct_video_to_image_if_user_asked_image(tc_info["arguments"], last_user_content)
                     _mismatch_err_tc = _detect_model_capability_mismatch(tc_info["arguments"])
                     if not _mismatch_err_tc:
+                        _redirect_video_generate_to_daihuo_if_tvc(tc_info["arguments"], last_user_content)
                         _inject_video_media_urls(tc_info["arguments"], attachment_urls)
                         _infer_video_model_from_user_text(tc_info["arguments"], last_user_content, bool(attachment_urls))
                         _resolve_video_payload_asset_ids_to_urls(tc_info["arguments"], request, db, user_id)
@@ -5210,6 +5266,7 @@ async def _chat_openai(
                             a = _correct_video_to_image_if_user_asked_image(a, last_user_content)
                             _mismatch_err_fc = _detect_model_capability_mismatch(a)
                             if not _mismatch_err_fc:
+                                _redirect_video_generate_to_daihuo_if_tvc(a, last_user_content)
                                 _inject_video_media_urls(a, attachment_urls)
                                 _infer_video_model_from_user_text(a, last_user_content, bool(attachment_urls))
                                 _resolve_video_payload_asset_ids_to_urls(a, request, db, user_id)
@@ -5277,6 +5334,7 @@ async def _chat_openai(
             )
             auto_args: Dict[str, Any] = {"capability_id": "image.generate", "payload": {}}
             auto_args = _correct_video_to_image_if_user_asked_image(auto_args, last_user_msg)
+            _redirect_video_generate_to_daihuo_if_tvc(auto_args, last_user_msg)
             _inject_video_media_urls(auto_args, attachment_urls)
             _infer_video_model_from_user_text(auto_args, last_user_msg, bool(attachment_urls))
             _resolve_video_payload_asset_ids_to_urls(auto_args, request, db, user_id)
@@ -5420,6 +5478,7 @@ async def _chat_anthropic(
                     inp = _correct_video_to_image_if_user_asked_image(inp, last_user_content)
                     _mismatch_err_a = _detect_model_capability_mismatch(inp)
                     if not _mismatch_err_a:
+                        _redirect_video_generate_to_daihuo_if_tvc(inp, last_user_content)
                         _inject_video_media_urls(inp, attachment_urls)
                         _infer_video_model_from_user_text(inp, last_user_content, bool(attachment_urls))
                         _resolve_video_payload_asset_ids_to_urls(inp, request, db, user_id)

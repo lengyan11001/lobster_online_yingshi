@@ -356,9 +356,10 @@ export class StreamingMarkdownFilter {
         }
         const cp = this.inl.acc.indexOf(")", cb + 2);
         if (cp !== -1) {
+          const url = this.inl.acc.slice(cb + 2, cp).trim();
           this.buf = this.inl.acc.slice(cp + 1);
           this.inl = null;
-          return "";
+          return url || "";
         }
         return "";
       }

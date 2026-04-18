@@ -52,7 +52,8 @@ class Settings(BaseSettings):
         return "online"
     """品牌标记：与 static/branding/brands.json 的 marks 键一致（如 bihuo）。桌面快捷方式与首页 logo/文案由该标记决定。"""
     lobster_brand_mark: str = "bihuo"
-    """在线版为 True 时：登录注册与充值全部自维护，不走速推；用户配置算力账号（速推 Token）用于耗算力，速推扣多少我们扣多少积分。"""
+    lobster_parent_account: Optional[str] = None
+    """在线版为 True 时：登录注册与充值全部自维护，不走速推；用户配置算力账号（速推 Token）用于耗算力，速推扣多少我们扣多少算力。"""
     lobster_independent_auth: bool = True
     """完成充值订单时需在请求头 X-Admin-Secret 携带此值（仅服务端/管理员使用）。"""
     lobster_recharge_admin_secret: Optional[str] = None
@@ -64,7 +65,7 @@ class Settings(BaseSettings):
     sutui_oauth_login_url: Optional[str] = None
     """速推 API 根地址，用于 apikeys/list、balance 等（仅 online 使用）"""
     sutui_api_base: str = "https://api.xskill.ai"
-    """GET /api/v3/models/{id}/docs 的 lang 参数（与 model-pricing-guide 一致），用于对话内按模型估算积分。"""
+    """GET /api/v3/models/{id}/docs 的 lang 参数（与 model-pricing-guide 一致），用于对话内按模型估算算力。"""
     xskill_model_docs_lang: str = "zh"
     """模型定价文档内存缓存秒数（减轻 xSkill 文档接口压力）。"""
     xskill_model_docs_cache_ttl_seconds: int = 3600
@@ -126,6 +127,12 @@ class Settings(BaseSettings):
     auth_me_cache_ttl_seconds: int = 120
     """为 True 时：高消耗 invoke_capability 前需用户确认后再请求 MCP（环境变量 CHAT_REQUIRE_CAPABILITY_COST_CONFIRM）。"""
     chat_require_capability_cost_confirm: bool = True
+    """为 True（默认）时：纯图/视频生成拿到终态 saved_assets 后尽早结束工具编排，减少多余 LLM 轮次；用户同句要求发布时仍会继续编排。"""
+    lobster_chat_generation_early_finish: bool = True
+    """纯生成提前结束时的助手可见回复：minimal=仅一句就绪确认（不含链接与 asset_id）；detailed=含 asset_id 与预览链接（旧行为）。"""
+    lobster_chat_generation_reply_style: str = "minimal"
+    """为 True 时在生成轮询结束后 SSE 推送「正在生成回复…」；默认 False（缩略图已展示时可关，避免状态栏重复打扰）。"""
+    lobster_chat_sse_status_generating_reply: bool = False
     """Twilio Account SID（可选；本页保存优先于 .env）。"""
     twilio_account_sid: Optional[str] = None
     """Twilio 控制台 Auth Token，用于校验入站 WhatsApp/SMS Webhook 的 X-Twilio-Signature。"""

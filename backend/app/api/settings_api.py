@@ -278,7 +278,7 @@ async def clear_local_user_config(
     与云端「是否存用户 Key」无关：各厂商 API Key 仅写在本机 openclaw/.env，本接口会清除这些文件中的 Key。
 
     本机 lobster.db：若存在 users 行则清空速推 Token、首选模型；始终按 user_id 删除 consumption_accounts。
-    不删除：云端积分与素材、登录态；不整文件删除 custom_configs.json（请用自定义配置 Tab 管理）。
+    不删除：云端算力与素材、登录态；不整文件删除 custom_configs.json（请用自定义配置 Tab 管理）。
 
     鉴权仅用于确认当前操作者（与素材库一致）；不在远端保存任何 Key。
     """

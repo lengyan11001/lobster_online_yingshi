@@ -49,6 +49,14 @@ def should_exclude(proj: str, rel_posix: str) -> bool:
     if rel_posix.startswith("docs/"):
         return True
 
+    if rel_posix.startswith("openclaw/browser/"):
+        return True
+    _skill_runtime = {"runs", "job_runs", "output", "cache"}
+    if len(parts) >= 3 and parts[0] == "skills" and parts[2] in _skill_runtime:
+        return True
+    if root_name and root_name in ("backend.log", "backend_err.log", "mcp.log"):
+        return True
+
     if root_name:
         if fnmatch.fnmatch(root_name, f"{proj}_*.zip"):
             return True

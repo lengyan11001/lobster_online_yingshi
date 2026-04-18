@@ -1181,6 +1181,18 @@ async def get_sutui_balance(request: Request):
     return Response(content=r.content, status_code=r.status_code, media_type="application/json")
 
 
+# --------------- 速推模型与定价（代理到认证中心，与预扣/扣费同源） ---------------
+
+@router.get("/api/sutui/models", summary="速推模型与定价（代理到认证中心）")
+async def get_sutui_models(request: Request):
+    base = _auth_server_base()
+    token = request.headers.get("Authorization") or ""
+    async with httpx.AsyncClient(timeout=120.0) as client:
+        r = await client.get(f"{base}/api/sutui/models", headers={"Authorization": token})
+    from fastapi.responses import Response
+    return Response(content=r.content, status_code=r.status_code, media_type="application/json")
+
+
 # --------------- 速推充值（对接速推真实接口：get_pay_info_list / create_wx_order_info）---------------
 
 _XSKILL_RECHARGE_URL = "https://www.xskill.ai/#/cn-recharge"

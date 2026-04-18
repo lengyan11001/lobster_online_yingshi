@@ -47,6 +47,7 @@ OTA_PATHS: tuple[str, ...] = (
     "nodejs/ensure-npm-cli.mjs",
     "nodejs/run-npm.mjs",
     "nodejs/.gitignore",
+    "nodejs/node_modules/@tencent-weixin/openclaw-weixin",
 )
 
 # 与 check_client_code_update.DEFAULT_PATHS_WITH_NODEJS_DEPS 一致（仅在对等清单外加整树时用）
@@ -61,8 +62,9 @@ SKIP_DIR_NAMES = {"__pycache__", ".git"}
 # skills 下各技能的 runs/job_runs 为执行缓存（音视频等），不应随 OTA 分发（否则单包可膨胀 200MB+）
 OTA_SKIP_REL_PREFIXES: tuple[str, ...] = (
     "scripts/_probe",
-    "skills/comfly_veo3_daihuo_video/runs",
 )
+
+_OTA_SKIP_SKILLS_DIRS = {"runs", "job_runs", "output", "cache"}
 
 # /chat 从该两文件读 system；此前 OTA 排除整个 workspace 会导致覆盖安装后「无工具提示」、模型不调 MCP
 _OTA_OPENCLAW_POLICY_RELS: tuple[str, ...] = (
@@ -84,6 +86,8 @@ def _skip_file(rel: str) -> bool:
         return True
     nr = _norm(rel)
     if any(nr.startswith(p) for p in OTA_SKIP_REL_PREFIXES):
+        return True
+    if len(parts) >= 3 and parts[0] == "skills" and parts[2] in _OTA_SKIP_SKILLS_DIRS:
         return True
     return False
 
@@ -131,6 +135,7 @@ def _add_openclaw(zf: zipfile.ZipFile, root: Path) -> None:
             and d != "workspace"
             and not d.startswith("workspace-")
             and d != "logs"
+            and d != "browser"
         ]
         for name in filenames:
             if name == ".env" or name.endswith(".bak") or ".bak." in name:

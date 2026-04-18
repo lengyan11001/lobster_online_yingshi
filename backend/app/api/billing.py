@@ -1,4 +1,4 @@
-"""软件收费模式配置与展示：技能解锁价格、算力套餐（积分兑换比例）；自有充值订单。"""
+"""软件收费模式配置与展示：技能解锁价格、算力套餐（算力兑换比例）；自有充值订单。"""
 import json
 import logging
 import time
@@ -26,9 +26,9 @@ _CUSTOM_CONFIGS_FILE = _BASE_DIR / "custom_configs.json"
 # 默认收费模式（可被 custom_configs.json 中 BILLING_PRICING 覆盖）
 _DEFAULT_SKILL_UNLOCK = {"min_yuan": 98, "max_yuan": 198}
 _DEFAULT_CREDIT_PACKAGES = [
-    {"price_yuan": 198, "credits": 20000, "label": "198元 - 20000积分"},
-    {"price_yuan": 498, "credits": 50000, "label": "498元 - 50000积分"},
-    {"price_yuan": 998, "credits": 120000, "label": "998元 - 120000积分"},
+    {"price_yuan": 198, "credits": 20000, "label": "198元 - 20000算力"},
+    {"price_yuan": 498, "credits": 50000, "label": "498元 - 50000算力"},
+    {"price_yuan": 998, "credits": 120000, "label": "998元 - 120000算力"},
 ]
 
 
@@ -67,7 +67,7 @@ def _get_billing_pricing() -> dict[str, Any]:
                 price = p.get("price_yuan") or p.get("price")
                 credits = p.get("credits")
                 if price is not None and credits is not None:
-                    label = (p.get("label") or "").strip() or f"{int(price)}元 - {int(credits)}积分"
+                    label = (p.get("label") or "").strip() or f"{int(price)}元 - {int(credits)}算力"
                     out.append({
                         "price_yuan": int(price),
                         "credits": int(credits),
@@ -91,7 +91,7 @@ def _get_billing_pricing() -> dict[str, Any]:
 
 @router.get(
     "/api/billing/credit-history",
-    summary="积分变动记录（转发认证中心；含 LLM sutui_chat 等）",
+    summary="算力变动记录（转发认证中心；含 LLM sutui_chat 等）",
 )
 async def proxy_credit_history_from_auth_server(
     request: Request,
@@ -103,7 +103,7 @@ async def proxy_credit_history_from_auth_server(
     if not base:
         raise HTTPException(
             status_code=503,
-            detail="未配置 AUTH_SERVER_BASE，无法拉取认证中心积分流水",
+            detail="未配置 AUTH_SERVER_BASE，无法拉取认证中心算力流水",
         )
     auth = (request.headers.get("Authorization") or "").strip()
     if not auth.lower().startswith("bearer "):
@@ -122,7 +122,7 @@ async def proxy_credit_history_from_auth_server(
         logger.warning("[billing-proxy] credit-history 认证中心不可达: %s", e)
         raise HTTPException(
             status_code=503,
-            detail=f"认证中心不可达，无法拉取积分流水: {e!s}",
+            detail=f"认证中心不可达，无法拉取算力流水: {e!s}",
         ) from e
     if r.status_code != 200:
         detail = (r.text or "")[:800] if r.text else r.reason_phrase
@@ -186,7 +186,7 @@ def create_recharge_order(
         amount_yuan = int(body.price_yuan)
         credits = int(body.credits)
         if amount_yuan <= 0 or credits <= 0:
-            raise HTTPException(status_code=400, detail="金额与积分须为正数")
+            raise HTTPException(status_code=400, detail="金额与算力须为正数")
     else:
         raise HTTPException(status_code=400, detail="请选择套餐或指定 price_yuan + credits")
     out_trade_no = f"R{current_user.id}_{int(time.time())}_{uuid.uuid4().hex[:8]}"
@@ -217,7 +217,7 @@ class RechargeCompleteBody(BaseModel):
     order_id: Optional[int] = None
 
 
-@router.post("/api/recharge/complete", summary="完成充值（管理员/回调：到账加积分）")
+@router.post("/api/recharge/complete", summary="完成充值（管理员/回调：到账加算力）")
 def complete_recharge(
     body: RechargeCompleteBody,
     x_admin_secret: Optional[str] = Header(None, alias="X-Admin-Secret"),
@@ -244,4 +244,4 @@ def complete_recharge(
     from datetime import datetime
     order.paid_at = datetime.utcnow()
     db.commit()
-    return {"ok": True, "message": f"已到账 {order.credits} 积分", "order_id": order.id}
+    return {"ok": True, "message": f"已到账 {order.credits} 算力", "order_id": order.id}

@@ -60,67 +60,72 @@ def abandon_capability_confirm(token: str) -> None:
 
 
 def invoke_should_prompt_cost_confirm(args: Dict[str, Any]) -> bool:
-    """仅对明显会产生扣费的能力弹确认；轮询类调用由 progress_cb=None 跳过。"""
+    """需要弹出积分确认的能力列表。"""
     cap = (args.get("capability_id") or "").strip()
-    if cap == "task.get_result":
-        return False
-    if cap in ("image.generate", "video.generate", "comfly.veo.daihuo_pipeline", "media.edit"):
+    if cap in ("image.generate", "video.generate"):
         return True
     if cap == "comfly.veo":
-        pl = args.get("payload") if isinstance(args.get("payload"), dict) else {}
-        act = (pl.get("action") or "").strip()
-        if act in ("poll_video", "upload"):
-            return False
-        return act in ("submit_video", "generate_prompts")
+        pl = args.get("payload")
+        action = ""
+        if isinstance(pl, dict):
+            action = (pl.get("action") or "").strip()
+        _SKIP_ACTIONS = ("poll_video", "check_status", "get_result")
+        if action not in _SKIP_ACTIONS:
+            return True
     return False
 
 
-def _fallback_unit_credits(db: Session, capability_id: str) -> Optional[int]:
-    from ..models import CapabilityConfig
+import logging
 
-    row = db.query(CapabilityConfig).filter(CapabilityConfig.capability_id == capability_id).first()
-    if not row or row.unit_credits is None:
-        return None
-    u = int(row.unit_credits)
-    return u if u > 0 else None
+_logger = logging.getLogger(__name__)
 
 
 async def estimate_capability_credits_for_invoke(
-    db: Session, capability_id: str, args: Dict[str, Any]
+    db: Session, capability_id: str, args: Dict[str, Any],
+    *, token: str = "", request=None,
 ) -> Dict[str, Any]:
-    """按本次 payload（已与对话层补全的 model 一致）估算参考积分；说明从简。"""
-    from .xskill_model_pricing import estimate_credits_from_pricing, fetch_model_pricing
+    """调用认证中心 pre-deduct dry_run 获取预估算力（已含用户倍率，不暴露原价）。"""
+    from ..core.config import get_settings
+    settings = get_settings()
+    base = (getattr(settings, "auth_server_base", None) or "").strip().rstrip("/")
+    if not base or not token:
+        return {"credits": None, "note": ""}
 
     payload = args.get("payload") if isinstance(args.get("payload"), dict) else {}
+    model = (payload.get("model") or payload.get("model_id") or payload.get("video_model") or "").strip()
 
-    if capability_id in ("image.generate", "video.generate"):
-        model = (payload.get("model") or payload.get("model_id") or "").strip()
-        if not model:
-            fb = _fallback_unit_credits(db, capability_id)
-            return {"credits": fb, "note": ""}
-        pricing = await fetch_model_pricing(model)
-        if pricing:
-            credits, extra = estimate_credits_from_pricing(pricing, payload)
-            return {"credits": credits, "note": (extra or "").strip()}
-        fb = _fallback_unit_credits(db, capability_id)
-        return {"credits": fb if fb else None, "note": ""}
+    body: Dict[str, Any] = {
+        "capability_id": capability_id,
+        "model": model,
+        "params": payload,
+        "dry_run": True,
+    }
 
-    if capability_id == "comfly.veo":
-        pl = payload
-        act = (pl.get("action") or "").strip()
-        if act == "submit_video":
-            model = (pl.get("video_model") or pl.get("model") or "").strip()
-            if model:
-                pricing = await fetch_model_pricing(model)
-                if pricing:
-                    credits, extra = estimate_credits_from_pricing(pricing, pl)
-                    return {"credits": credits, "note": (extra or "").strip()}
-        fb = _fallback_unit_credits(db, capability_id)
-        return {"credits": fb, "note": ""}
+    import httpx
+    try:
+        headers: Dict[str, str] = {"Authorization": f"Bearer {token}"}
+        billing_key = (getattr(settings, "lobster_mcp_billing_internal_key", None) or "").strip()
+        if billing_key:
+            headers["X-Lobster-Mcp-Billing"] = billing_key
+        if request is not None:
+            xi = (request.headers.get("X-Installation-Id") or request.headers.get("x-installation-id") or "").strip()
+            if xi:
+                headers["X-Installation-Id"] = xi
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                f"{base}/capabilities/pre-deduct",
+                json=body,
+                headers=headers,
+            )
+        if r.status_code == 200:
+            d = r.json() if r.content else {}
+            credits = d.get("credits_charged")
+            return {"credits": credits, "note": ""}
+        _logger.warning(
+            "[cost-confirm] dry_run pre-deduct 非 200: status=%s body=%s",
+            r.status_code, (r.text or "")[:300],
+        )
+    except Exception as e:
+        _logger.warning("[cost-confirm] dry_run pre-deduct 异常: %s", e)
 
-    if capability_id == "comfly.veo.daihuo_pipeline":
-        fb = _fallback_unit_credits(db, capability_id)
-        return {"credits": fb, "note": ""}
-
-    fb = _fallback_unit_credits(db, capability_id)
-    return {"credits": fb, "note": ""}
+    return {"credits": None, "note": ""}

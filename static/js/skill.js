@@ -187,6 +187,7 @@ function _renderXSkillCard() {
     guide +
     '<div class="card-actions">' +
       configBtn +
+      '<button type="button" class="btn btn-ghost btn-sm" id="xskillModelsBtn">模型与定价</button>' +
       '<a href="https://xskill.ai" target="_blank" rel="noopener" class="btn btn-ghost btn-sm">官网</a>' +
     '</div></div>';
 }
@@ -354,24 +355,25 @@ function loadSkillStore() {
   el.innerHTML = '<p class="meta">加载中…</p>';
 
   var remoteBase = (typeof API_BASE !== 'undefined' ? API_BASE : '') || '';
-  var localBase = (typeof LOCAL_API_BASE !== 'undefined' ? LOCAL_API_BASE : '') || '';
   var remoteReq = _fetchSkillStoreFrom(remoteBase).catch(function() { return { packages: [] }; });
-  var localReq = (!localBase || String(localBase).replace(/\/$/, '') === String(remoteBase).replace(/\/$/, ''))
-    ? Promise.resolve({ packages: [] })
-    : _fetchSkillStoreFrom(localBase).catch(function() { return { packages: [] }; });
 
-  Promise.all([remoteReq, localReq])
+  Promise.all([remoteReq])
     .then(function(results) {
-      var d = _mergeSkillStorePackages(results[0], results[1]);
+      var d = results[0] || { packages: [] };
       var packages = (d && Array.isArray(d.packages)) ? d.packages : [];
       var isSkillAdmin = !!(d && d.is_skill_store_admin);
       var needYoutube = packages.some(function(p) { return p.id === 'youtube_publish'; });
       var ecommercePkg = packages.filter(function(p) { return p.id === 'comfly_ecommerce_detail_skill'; })[0] || null;
 
+      var hasSutuiPkg = packages.some(function(p) { return p.id === 'sutui_mcp'; });
+      var hasComflyPkg = packages.some(function(p) { return p.id === 'comfly_veo_skill'; });
+
       function paintSkillStoreList() {
-        var html = _renderXSkillCard() + _renderComflyCard();
+        var html = '';
+        if (hasSutuiPkg) html += _renderXSkillCard();
+        if (hasComflyPkg || isSkillAdmin) html += _renderComflyCard();
         if (ecommercePkg) html += _renderEcommerceDetailCard({ pkg: ecommercePkg });
-        html += _renderMetaSocialCard();
+        if (isSkillAdmin) html += _renderMetaSocialCard();
         var hasWxPkg = packages.some(function(p) { return p.id === 'openclaw_weixin_channel'; });
         if (hasWxPkg) {
           var wxPkg = packages.filter(function(p) { return p.id === 'openclaw_weixin_channel'; })[0];
@@ -429,7 +431,7 @@ function loadSkillStore() {
         if (pkg.id === 'wecom_reply') {
           var tags = (pkg.tags || []).map(function(t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join('');
           var capCount = pkg.capabilities_count ? ' · ' + pkg.capabilities_count + ' 个能力' : '';
-          // 与 lobster 商店展示一致：仅「可配置」+ 配置按钮；积分解锁在点击时由服务器 wecom-config-eligible 判定
+          // 与 lobster 商店展示一致：仅「可配置」+ 配置按钮；算力解锁在点击时由服务器 wecom-config-eligible 判定
           return '<div class="skill-store-card wecom-reply-card" style="cursor:pointer;">' +
             '<div class="card-label">' + debugBadge + escapeHtml(pkg.type || 'skill') + ' <span class="badge-installed">可配置</span></div>' +
             '<div class="card-value">' + escapeHtml(pkg.name || pkg.id) + '</div>' +
@@ -447,7 +449,7 @@ function loadSkillStore() {
         } else {
           actionBtn = '<button type="button" class="btn btn-primary btn-sm" data-install="' + escapeAttr(pkg.id) + '">安装</button>';
           if (pkg.unlock_price_credits && !pkg.unlocked) {
-            actionBtn = '<button type="button" class="btn btn-primary btn-sm" data-unlock-credits="' + escapeAttr(pkg.id) + '">积分解锁（' + (pkg.unlock_price_credits || 0) + '）</button> ' + actionBtn;
+            actionBtn = '<button type="button" class="btn btn-primary btn-sm" data-unlock-credits="' + escapeAttr(pkg.id) + '">算力解锁（' + (pkg.unlock_price_credits || 0) + '）</button> ' + actionBtn;
           }
         }
         var tags = (pkg.tags || []).map(function(t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join('');
@@ -543,7 +545,7 @@ function _openWecomConfigIfUnlocked() {
       }
       var amount = (info && info.amount_credits) || 1000;
       var pkgId = (info && info.package_id) || 'wecom_reply';
-      var msg = (info && info.detail) || ('「企业微信自动回复」需 ' + amount + ' 积分解锁后才能管理本地配置。');
+      var msg = (info && info.detail) || ('「企业微信自动回复」需 ' + amount + ' 算力解锁后才能管理本地配置。');
       if (!confirm(msg + '\n\n是否现在解锁？')) return;
       return fetch(base + '/skills/unlock-by-credits', {
         method: 'POST',
@@ -726,6 +728,10 @@ function _bindComflyConfigBtn__legacy_unused() {
 }
 
 function _bindXSkillConfigBtn() {
+  var modelsBtn = document.getElementById('xskillModelsBtn');
+  if (modelsBtn) modelsBtn.addEventListener('click', function() {
+    if (typeof window._openXSkillModelsModal === 'function') window._openXSkillModelsModal();
+  });
   if (EDITION === 'online') return;
   var btn = document.getElementById('xskillConfigBtn');
   if (!btn) return;
@@ -812,6 +818,150 @@ function _bindComflyConfigBtn() {
       .catch(function() { if (msgEl) { msgEl.textContent = '网络错误'; msgEl.className = 'msg err'; msgEl.style.display = ''; } })
       .finally(function() { saveBtn.disabled = false; saveBtn.textContent = '保存'; });
   });
+})();
+
+// ── xSkill 模型与定价 Modal ──────────────────────────────────────
+(function _initXSkillModelsModal() {
+  var modal = document.getElementById('xskillModelsModal');
+  if (!modal) return;
+  var closeBtn = document.getElementById('xskillModelsClose');
+  var body = document.getElementById('xskillModelsBody');
+  var tabsWrap = document.getElementById('xskillModelsTabs');
+  var searchInput = document.getElementById('xskillModelsSearch');
+  var pagerWrap = document.getElementById('xskillModelsPager');
+  var _data = null;
+  var _activeCat = 'all';
+  var _query = '';
+  var _page = 1;
+  var PAGE_SIZE = 15;
+
+  function close() { modal.classList.remove('visible'); }
+  if (closeBtn) closeBtn.addEventListener('click', close);
+  modal.addEventListener('click', function(e) { if (e.target === modal) close(); });
+
+  var _TASK_LABEL = { t2v:'文生视频', i2v:'图生视频', t2i:'文生图', i2i:'图生图/编辑',
+    v2v:'视频转视频', t2a:'语音合成', stt:'语音转文字', a2a:'音频处理', chat:'对话' };
+
+  function _priceShort(p) {
+    if (!p) return '—';
+    if (p.default_credits > 0) return p.default_credits + ' 算力';
+    if (p.base_price_user > 0) return p.base_price_user + ' 算力/' + (p.price_type === 'duration_based' ? '秒' : '次');
+    var exs = (p.examples || []).filter(function(e) { return e.price > 0; });
+    if (exs.length > 0) return exs[0].price + ' 算力';
+    return '—';
+  }
+
+  function _priceTooltip(p) {
+    if (!p) return '';
+    var lines = [];
+    if (p.price_type) lines.push('计费方式: ' + p.price_type);
+    if (p.base_price_user) lines.push('基础单价: ' + p.base_price_user + ' 算力');
+    if (p.default_credits) lines.push('默认参数估价: ' + p.default_credits + ' 算力');
+    var exs = (p.examples || []).filter(function(e) { return e.price > 0; });
+    if (exs.length > 0) {
+      lines.push('');
+      exs.forEach(function(e) { lines.push((e.description || '默认') + ': ' + e.price + ' 算力'); });
+    }
+    return lines.join('\n');
+  }
+
+  function _filtered() {
+    if (!_data) return [];
+    var list = _activeCat === 'all' ? _data : _data.filter(function(m) { return m.category === _activeCat; });
+    if (_query) {
+      var q = _query.toLowerCase();
+      list = list.filter(function(m) { return (m.name || '').toLowerCase().indexOf(q) >= 0 || (m.id || '').toLowerCase().indexOf(q) >= 0; });
+    }
+    return list;
+  }
+
+  function render() {
+    if (!_data) { body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted);">无数据</div>'; if (pagerWrap) pagerWrap.innerHTML = ''; return; }
+    var list = _filtered();
+    var totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+    if (_page > totalPages) _page = totalPages;
+    var start = (_page - 1) * PAGE_SIZE;
+    var pageItems = list.slice(start, start + PAGE_SIZE);
+    if (!list.length) { body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted);">无匹配模型</div>'; if (pagerWrap) pagerWrap.innerHTML = ''; return; }
+
+    var html = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;"><thead><tr style="border-bottom:2px solid var(--border);text-align:left;">'
+      + '<th style="padding:0.5rem 0.4rem;">模型名称</th>'
+      + '<th style="padding:0.5rem 0.4rem;">会话中输入</th>'
+      + '<th style="padding:0.5rem 0.4rem;">类型</th>'
+      + '<th style="padding:0.5rem 0.4rem;min-width:80px;">定价</th>'
+      + '</tr></thead><tbody>';
+    pageItems.forEach(function(m) {
+      var badges = '';
+      if (m.isHot) badges += '<span style="background:rgba(239,68,68,0.15);color:#f87171;font-size:0.68rem;padding:0.1rem 0.35rem;border-radius:4px;margin-left:0.3rem;">热门</span>';
+      if (m.isNew) badges += '<span style="background:rgba(34,197,94,0.15);color:#4ade80;font-size:0.68rem;padding:0.1rem 0.35rem;border-radius:4px;margin-left:0.3rem;">新</span>';
+      var tip = _priceTooltip(m.pricing);
+      var short = _priceShort(m.pricing);
+      var priceTd = tip
+        ? '<span class="xm-price-tip" title="' + tip.replace(/"/g, '&quot;') + '" style="cursor:help;border-bottom:1px dashed var(--text-muted);">' + short + '</span>'
+        : '<span style="color:var(--text-muted)">' + short + '</span>';
+      html += '<tr style="border-bottom:1px solid var(--border);">'
+        + '<td style="padding:0.45rem 0.4rem;font-weight:500;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + m.name + badges + '</td>'
+        + '<td style="padding:0.45rem 0.4rem;"><code style="background:rgba(6,182,212,0.1);padding:0.15rem 0.4rem;border-radius:4px;font-size:0.75rem;user-select:all;cursor:text;word-break:break-all;">' + m.id + '</code></td>'
+        + '<td style="padding:0.45rem 0.4rem;color:var(--text-muted);white-space:nowrap;">' + (_TASK_LABEL[m.task_type] || m.task_type) + '</td>'
+        + '<td style="padding:0.45rem 0.4rem;font-size:0.78rem;">' + priceTd + '</td>'
+        + '</tr>';
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+
+    if (pagerWrap) {
+      if (totalPages <= 1) { pagerWrap.innerHTML = '<span>' + list.length + ' 个模型</span>'; return; }
+      var ph = '<span>' + list.length + ' 个模型</span><span style="display:flex;gap:0.3rem;align-items:center;">';
+      ph += '<button type="button" class="btn btn-ghost btn-sm xm-pg" data-pg="' + Math.max(1, _page - 1) + '"' + (_page <= 1 ? ' disabled' : '') + '>&laquo;</button>';
+      for (var i = 1; i <= totalPages; i++) {
+        if (totalPages > 7 && i > 2 && i < totalPages - 1 && Math.abs(i - _page) > 1) {
+          if (i === 3 || i === totalPages - 2) ph += '<span style="padding:0 0.2rem;">…</span>';
+          continue;
+        }
+        ph += '<button type="button" class="btn btn-sm xm-pg' + (i === _page ? ' xm-tab active' : ' btn-ghost') + '" data-pg="' + i + '">' + i + '</button>';
+      }
+      ph += '<button type="button" class="btn btn-ghost btn-sm xm-pg" data-pg="' + Math.min(totalPages, _page + 1) + '"' + (_page >= totalPages ? ' disabled' : '') + '>&raquo;</button>';
+      ph += '</span>';
+      pagerWrap.innerHTML = ph;
+    }
+  }
+
+  if (pagerWrap) pagerWrap.addEventListener('click', function(e) {
+    var btn = e.target.closest('.xm-pg');
+    if (!btn || btn.disabled) return;
+    _page = parseInt(btn.dataset.pg) || 1;
+    render();
+    body.scrollTop = 0;
+  });
+
+  if (tabsWrap) tabsWrap.addEventListener('click', function(e) {
+    var tab = e.target.closest('.xm-tab');
+    if (!tab || tab.classList.contains('xm-pg')) return;
+    _activeCat = tab.dataset.cat || 'all';
+    _page = 1;
+    tabsWrap.querySelectorAll('.xm-tab:not(.xm-pg)').forEach(function(t) { t.classList.toggle('active', t === tab); });
+    render();
+  });
+
+  var _searchTimer = null;
+  if (searchInput) searchInput.addEventListener('input', function() {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(function() {
+      _query = (searchInput.value || '').trim();
+      _page = 1;
+      render();
+    }, 200);
+  });
+
+  window._openXSkillModelsModal = function() {
+    modal.classList.add('visible');
+    if (_data) return;
+    body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted);">加载中…</div>';
+    fetch((LOCAL_API_BASE || '') + '/api/sutui/models', { headers: authHeaders() })
+      .then(function(r) { return r.json(); })
+      .then(function(d) { _data = d.models || d; render(); })
+      .catch(function() { body.innerHTML = '<div style="text-align:center;padding:2rem;color:var(--text-muted);">加载失败</div>'; });
+  };
 })();
 
 (function _initComflyModal() {
@@ -905,8 +1055,8 @@ function _bindInstallUninstall(el) {
               if (x.ok) {
                 alert((x.data.message || '解锁成功') + '\n\n请再点击「安装」，以在本机注册能力（含素材剪辑 media.edit，供 MCP 使用）。');
                 loadSkillStore();
-              } else { alert(x.data.detail || '解锁失败'); btn.disabled = false; btn.textContent = '积分解锁'; }
-            }).catch(function() { alert('网络错误'); btn.disabled = false; btn.textContent = '积分解锁'; });
+              } else { alert(x.data.detail || '解锁失败'); btn.disabled = false; btn.textContent = '算力解锁'; }
+            }).catch(function() { alert('网络错误'); btn.disabled = false; btn.textContent = '算力解锁'; });
         });
       });
       el.querySelectorAll('button[data-install]').forEach(function(btn) {

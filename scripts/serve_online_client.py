@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
-DEFAULT_API = "http://42.194.209.150"
+DEFAULT_API = "https://bhzn.top"
 DEFAULT_PORT = 8000
 
 

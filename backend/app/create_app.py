@@ -339,6 +339,20 @@ def _auto_start_openclaw():
         logger.warning("OpenClaw auto-start skipped: %s", e)
 
 
+def _migrate_kf_customer_group():
+    """Add group_id column to wecom_kf_customers if missing."""
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            r = conn.execute(text("PRAGMA table_info(wecom_kf_customers)"))
+            cols = [row[1] for row in r]
+            if "group_id" not in cols:
+                conn.execute(text("ALTER TABLE wecom_kf_customers ADD COLUMN group_id INTEGER"))
+                conn.commit()
+    except Exception as e:
+        logger.warning("Migration kf_customer group_id skipped: %s", e)
+
+
 def _migrate_wecom_config_enterprise_product():
     """Add enterprise_id, product_id, secret, agent_id to wecom_configs if missing."""
     from sqlalchemy import text
@@ -360,6 +374,9 @@ def _migrate_wecom_config_enterprise_product():
                 conn.commit()
             if "contacts_secret" not in cols:
                 conn.execute(text("ALTER TABLE wecom_configs ADD COLUMN contacts_secret VARCHAR(255)"))
+                conn.commit()
+            if "auto_reply_enabled" not in cols:
+                conn.execute(text("ALTER TABLE wecom_configs ADD COLUMN auto_reply_enabled BOOLEAN NOT NULL DEFAULT 0"))
                 conn.commit()
     except Exception as e:
         logger.warning("Migration wecom_configs enterprise/product skipped: %s", e)
@@ -598,8 +615,28 @@ def _migrate_publish_account_creator_schedule_v5():
         logger.warning("Migration publish_account_creator_schedule v5 skipped: %s", e)
 
 
+def _sync_global_openclaw_workspace():
+    """Copy project-bundled global workspace defaults to ~/.openclaw/workspace/ if missing or stale."""
+    try:
+        src_dir = Path(__file__).resolve().parents[2] / "openclaw" / "global_workspace_defaults"
+        dst_dir = Path.home() / ".openclaw" / "workspace"
+        if not src_dir.is_dir():
+            return
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        for src_file in src_dir.iterdir():
+            if src_file.is_file():
+                dst_file = dst_dir / src_file.name
+                src_bytes = src_file.read_bytes()
+                if not dst_file.exists() or dst_file.read_bytes() != src_bytes:
+                    dst_file.write_bytes(src_bytes)
+                    logger.info("[启动] 同步全局工作区文件: %s", src_file.name)
+    except Exception as e:
+        logger.warning("[启动] 同步全局工作区文件失败: %s", e)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
+    _sync_global_openclaw_workspace()
     if wecom_router is not None:
         try:
             from .api.wecom import wecom_poll_loop
@@ -667,6 +704,7 @@ def create_app() -> FastAPI:
     _migrate_publish_account_creator_schedule_v4()
     _migrate_publish_account_creator_schedule_v5()
     _migrate_wecom_config_enterprise_product()
+    _migrate_kf_customer_group()
     _ensure_default_user()
     _seed_capability_catalog()
     _sync_missing_capabilities_from_catalog()

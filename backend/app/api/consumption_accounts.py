@@ -1,4 +1,4 @@
-"""算力账号：用户可配置多个，绑定速推 Token，耗算力时用其一并扣主账号积分。"""
+"""算力账号：用户可配置多个，绑定速推 Token，耗算力时用其一并扣主账号算力。"""
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException

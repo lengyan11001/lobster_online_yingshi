@@ -2,7 +2,7 @@
   "packages": {
     "media_edit_skill": {
       "name": "素材剪辑",
-      "description": "对素材库视频/图片做叠字、裁剪、画幅、静音、配乐、静图转视频、抽帧；需本机已安装 ffmpeg。1000 积分解锁后可在对话中用自然语言描述剪辑意图（须给出可解析参数）。",
+      "description": "对素材库视频/图片做叠字、裁剪、画幅、静音、配乐、静图转视频、抽帧；需本机已安装 ffmpeg。1000 算力解锁后可在对话中用自然语言描述剪辑意图（须给出可解析参数）。",
       "type": "builtin",
       "store_visibility": "debug",
       "unlock_price_credits": 1000,
@@ -183,7 +183,7 @@
     },
     "comfly_veo_skill": {
       "name": "爆款TVC",
-      "description": "用一张商品/主图自动做多分镜 + 多段 Veo 成片，可选拼接为一条 TVC；用户对话里可说「用爆款TVC和这个素材做个视频」。技能卡片**必须**在本账号下配置 Comfly 的 API Key 与 API 根地址（每用户独立，不走服务端环境变量兜底），分镜、提示词、模型与拼接由技能内置流程完成，无需用户在卡片里改流水线参数。下方 package_config 中的模型字段仅供系统/高级覆盖，普通用户可忽略。无需积分解锁。技术说明：提示词走 OpenAI 兼容 chat（根地址常为 https://ai.comfly.chat/v1）；视频任务走 Comfly v2（POST /v2/videos/generations，以官方文档为准）。",
+      "description": "用一张商品/主图自动做多分镜 + 多段 Veo 成片，可选拼接为一条 TVC；用户对话里可说「用爆款TVC和这个素材做个视频」。技能卡片**必须**在本账号下配置 Comfly 的 API Key 与 API 根地址（每用户独立，不走服务端环境变量兜底），分镜、提示词、模型与拼接由技能内置流程完成，无需用户在卡片里改流水线参数。下方 package_config 中的模型字段仅供系统/高级覆盖，普通用户可忽略。无需算力解锁。技术说明：提示词走 OpenAI 兼容 chat（根地址常为 https://ai.comfly.chat/v1）；视频任务走 Comfly v2（POST /v2/videos/generations，以官方文档为准）。",
       "type": "builtin",
       "store_visibility": "popular",
       "status": "available",
