@@ -18,7 +18,7 @@ var LOBSTER_SERVER_PUBLIC = 'https://api.51ins.com';
   var serverDefault = isLoopbackHost ? LOBSTER_SERVER_PUBLIC : (window.location.origin || LOBSTER_SERVER_PUBLIC);
   var p = new URLSearchParams(window.location.search);
   var cached = (localStorage.getItem('lobster_api_base') || '').trim();
-  if (cached && /42\.194\.209\.150/.test(cached)) { cached = ''; localStorage.removeItem('lobster_api_base'); }
+  if (cached && (/42\.194\.209\.150/.test(cached) || /bhzn\.top/.test(cached))) { cached = ''; localStorage.removeItem('lobster_api_base'); }
   var api = (p.get('api') || '').trim() || cached || serverDefault;
   if (api) localStorage.setItem('lobster_api_base', api);
   window.__API_BASE = api;
