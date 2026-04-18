@@ -1,5 +1,5 @@
 /** 定死：公网 lobster_server（登录/验证码/auth/me；与 pack_bundle AUTH_SERVER_BASE 一致；走 HTTPS 与 Nginx 443） */
-var LOBSTER_SERVER_PUBLIC = 'https://bhzn.top';
+var LOBSTER_SERVER_PUBLIC = 'https://api.51ins.com';
 
 (function setApiBaseFromUrl() {
   // 本机回环：优先用当前页 origin（含真实端口）。port 为空时（如默认 80）不能误写成 :8000，否则会连错端口 → Failed to fetch

@@ -355,7 +355,7 @@ def _is_internal_asset_http_url(url: str) -> bool:
             return True
         if hostname in ("localhost", "127.0.0.1", "0.0.0.0"):
             return True
-        if "42.194.209.150" in hostname or "bhzn.top" in hostname:
+        if "42.194.209.150" in hostname or "bhzn.top" in hostname or "51ins.com" in hostname:
             return True
         if "token=" in u or "?token" in u:
             return True
@@ -389,7 +389,7 @@ def _is_internal_asset_http_url(url: str) -> bool:
                 return True
         return False
     except Exception:
-        if "42.194.209.150" in u or "bhzn.top" in u or "token=" in u or "?token" in u:
+        if "42.194.209.150" in u or "bhzn.top" in u or "51ins.com" in u or "token=" in u or "?token" in u:
             return True
         return False
 
@@ -1051,7 +1051,7 @@ async def _save_asset_from_url_locked(
                 is_internal = (
                     not hostname or
                     hostname in ("localhost", "127.0.0.1", "0.0.0.0") or
-                    "42.194.209.150" in hostname or "bhzn.top" in hostname or
+                    "42.194.209.150" in hostname or "bhzn.top" in hostname or "51ins.com" in hostname or
                     (hostname and ("token=" in body.url or "?token" in body.url))
                 )
                 if not is_internal:
