@@ -103,10 +103,15 @@
     .ecom-upload-box { border: 1px dashed rgba(255,255,255,0.16); border-radius: 12px; padding: 0.8rem; background: rgba(255,255,255,0.025); }
     .ecom-upload-box .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-bottom: 0.6rem; }
     .ecom-upload-list { display: flex; flex-wrap: wrap; gap: 0.55rem; }
-    .ecom-upload-item { width: 84px; position: relative; }
+    .ecom-upload-item { width: 104px; position: relative; }
     .ecom-upload-thumb { width: 84px; height: 84px; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.05); }
     .ecom-upload-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
     .ecom-upload-name { margin-top: 0.25rem; font-size: 0.68rem; color: var(--text-muted); line-height: 1.35; word-break: break-word; }
+    .ecom-upload-status { display: inline-flex; align-items: center; margin-top: 0.28rem; padding: 0.14rem 0.42rem; border-radius: 999px; background: rgba(56,189,248,0.13); color: #7dd3fc; font-size: 0.66rem; line-height: 1.2; }
+    .ecom-upload-status.ready { background: rgba(34,197,94,0.12); color: #86efac; }
+    .ecom-upload-status.failed { background: rgba(248,113,113,0.13); color: #fca5a5; }
+    .ecom-upload-error { margin-top: 0.22rem; color: #fca5a5; font-size: 0.62rem; line-height: 1.35; word-break: break-word; }
+    .ecom-upload-asset-id { margin-top: 0.22rem; font-size: 0.62rem; color: rgba(255,255,255,0.42); word-break: break-all; }
     .ecom-upload-remove {
       position: absolute; top: -6px; right: -6px; width: 22px; height: 22px; border-radius: 50%;
       border: 1px solid rgba(255,255,255,0.1); background: rgba(10,10,15,0.92); color: #fff; cursor: pointer;
@@ -284,15 +289,10 @@
     }
     #ecomOverviewStats,
     #ecomRequestedOutputs,
-    #ecomFocusedCounter,
-    #ecomFocusedFolderHint,
-    #ecomFocusedPreview,
-    #ecomFocusedMeta,
     .ecom-browser-toolbar-head,
     .ecom-progress-bar-compact,
     .ecom-results-header,
-    .ecom-browser-side,
-    .ecom-browser-main > .ecom-panel:first-child {
+    .ecom-browser-side {
       display: none !important;
     }
     .ecom-browser-layout {
@@ -562,8 +562,8 @@
                       <input type="text" id="ecomProductNameInput" placeholder="例如：实木猫砂柜 / 牛仔外套 / 女包">
                     </div>
                     <div class="ecom-field">
-                      <label for="ecomProductDirectionInput">商品方向</label>
-                      <input type="text" id="ecomProductDirectionInput" placeholder="例如：猫家具、女装外套、收纳家居">
+                      <label for="ecomProductDirectionInput">商品类目</label>
+                      <input type="text" id="ecomProductDirectionInput" placeholder="例如：猫家具 / 女装外套 / 收纳家居">
                     </div>
                     <div class="ecom-inline-grid">
                       <div class="ecom-field">
@@ -602,7 +602,7 @@
                       </div>
                       <div class="ecom-field">
                         <label for="ecomPageCountInput">详情页数</label>
-                        <input type="number" id="ecomPageCountInput" min="10" max="16" value="12">
+                        <input type="number" id="ecomPageCountInput" min="1" max="20" value="12">
                       </div>
                     </div>
                     <div class="ecom-inline-grid">
@@ -621,6 +621,26 @@
                           <option value="showcase_template_02" selected>橱窗模板 02</option>
                           <option value="showcase_template_03">橱窗模板 03</option>
                         </select>
+                      </div>
+                    </div>
+                    <div class="ecom-inline-grid">
+                      <div class="ecom-field">
+                        <label for="ecomMainImageCountInput">主图数量</label>
+                        <input type="number" id="ecomMainImageCountInput" min="1" max="20" value="10">
+                      </div>
+                      <div class="ecom-field">
+                        <label for="ecomSkuImageCountInput">SKU 图数量</label>
+                        <input type="number" id="ecomSkuImageCountInput" min="1" max="10" value="3">
+                      </div>
+                    </div>
+                    <div class="ecom-inline-grid">
+                      <div class="ecom-field">
+                        <label for="ecomMaterialImageCountInput">素材图数量</label>
+                        <input type="number" id="ecomMaterialImageCountInput" min="1" max="10" value="3">
+                      </div>
+                      <div class="ecom-field">
+                        <label for="ecomShowcaseCountInput">橱窗图数量</label>
+                        <input type="number" id="ecomShowcaseCountInput" min="1" max="20" placeholder="不填则按卖点自动推算">
                       </div>
                     </div>
                     <div class="ecom-field">
@@ -2038,22 +2058,17 @@
     </div>
   </div>
 
-  <!-- 爆款TVC：用户仅需配置 Comfly Key / API 根地址 -->
+  <!-- 爆款TVC：用户仅需配置 Comfly Key -->
   <div id="comflyModal" class="modal-mask">
     <div class="modal" style="max-width:460px;">
       <h4 style="margin:0 0 0.25rem 0;font-size:1.05rem;">爆款TVC · Comfly 凭据</h4>
       <p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 1rem 0;line-height:1.5;">
-        技能「爆款TVC」只需在此填写 <strong>API Key</strong> 与 <strong>API 根地址</strong>，分镜与成片流程由技能自动完成。凭据保存在本机数据库，用于 <code>comfly.veo</code> / <code>comfly.veo.daihuo_pipeline</code>；请使用 Comfly 控制台发放的 Key（勿在聊天里发送 Token）。
+        技能「爆款TVC」只需在此填写 <strong>API Key</strong>。接口地址走软件内置配置，用户无需单独修改；这里仅做本机保存，用于 <code>comfly.veo</code> / <code>comfly.veo.daihuo_pipeline</code>，不会在保存时请求 Comfly 校验凭据。请使用 Comfly 控制台发放的 Key（勿在聊天里发送 Token）。
       </p>
       <div class="modal-field">
         <label>API Key</label>
         <input type="password" id="comflyApiKeyInput" placeholder="sk-..." autocomplete="off">
         <div class="hint">在 Comfly 控制台创建/复制；留空保存表示不修改已保存的 Key（若从未配置且服务端也未设置，则须填写）。</div>
-      </div>
-      <div class="modal-field">
-        <label>API 根地址 <span style="font-weight:normal;color:var(--text-muted);font-size:0.8rem;">(常用 …/v1，对接 chat/completions)</span></label>
-        <input type="text" id="comflyApiBaseInput" placeholder="https://ai.comfly.chat/v1" autocomplete="off">
-        <div class="hint">生成英文提示词走 OpenAI 兼容 <code>…/v1/chat/completions</code>；Veo 图生视频由后端请求官方 <code>POST /v2/videos/generations</code>。以 Comfly 文档为准。</div>
       </div>
       <div id="comflyModalMsg" class="msg" style="display:none;margin-top:0.5rem;"></div>
       <div class="btns" style="justify-content:flex-end;">

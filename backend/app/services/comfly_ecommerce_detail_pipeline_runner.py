@@ -118,6 +118,12 @@ def build_pipeline_input(
     output_targets: Optional[Dict[str, object]],
     detail_template_id: Optional[str],
     showcase_template_id: Optional[str],
+    main_image_count: Optional[int],
+    sku_image_count: Optional[int],
+    listing_category: Optional[str],
+    export_name_prefix: Optional[str],
+    showcase_count: Optional[int],
+    material_image_count: Optional[int],
     brand: Optional[str],
     compliance_notes: Optional[List[str]],
     api_key: str,
@@ -161,6 +167,18 @@ def build_pipeline_input(
         inp["detail_template_id"] = detail_template_id.strip()
     if (showcase_template_id or "").strip():
         inp["showcase_template_id"] = showcase_template_id.strip()
+    if main_image_count is not None:
+        inp["main_image_count"] = int(main_image_count)
+    if sku_image_count is not None:
+        inp["sku_image_count"] = int(sku_image_count)
+    if (listing_category or "").strip():
+        inp["listing_category"] = listing_category.strip()
+    if (export_name_prefix or "").strip():
+        inp["export_name_prefix"] = export_name_prefix.strip()
+    if showcase_count is not None:
+        inp["showcase_count"] = int(showcase_count)
+    if material_image_count is not None:
+        inp["material_image_count"] = int(material_image_count)
     if (brand or "").strip():
         inp["brand"] = brand.strip()
     if compliance_notes:

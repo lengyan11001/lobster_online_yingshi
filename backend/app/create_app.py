@@ -39,7 +39,13 @@ from .api.media_edit import router as media_edit_router
 from .api.comfly_veo import router as comfly_veo_router
 from .api.comfly_daihuo import router as comfly_daihuo_router
 from .api.comfly_ecommerce_detail import router as comfly_ecommerce_detail_router
-from .api.ecommerce_publish import router as ecommerce_publish_router
+try:
+    from .api.ecommerce_publish import router as ecommerce_publish_router
+except ModuleNotFoundError as e:
+    if e.name == "backend.app.api.ecommerce_publish":
+        ecommerce_publish_router = None
+    else:
+        raise
 from .api.publish import router as publish_router
 from .api.creator_content import router as creator_content_router
 from .api.account_creator_schedule import router as account_creator_schedule_router
@@ -758,7 +764,10 @@ def create_app() -> FastAPI:
     app.include_router(comfly_veo_router, prefix="")
     app.include_router(comfly_daihuo_router, prefix="")
     app.include_router(comfly_ecommerce_detail_router, prefix="")
-    app.include_router(ecommerce_publish_router, prefix="")
+    if ecommerce_publish_router is not None:
+        app.include_router(ecommerce_publish_router, prefix="")
+    else:
+        logger.info("ecommerce_publish router not found; using publish router for ecommerce account management")
     app.include_router(publish_router, prefix="")
     app.include_router(creator_content_router, prefix="")
     app.include_router(account_creator_schedule_router, prefix="")
