@@ -149,7 +149,7 @@ class Settings(BaseSettings):
     ihuyi_sms_password: Optional[str] = None
     """Comfly API 根。生成提示词用 OpenAI 兼容 chat（相对此根拼 chat/completions，多为 …/v1/chat/completions）；Veo 提交由 comfly_veo_submit_path 走 v2（默认 /v2/videos/generations）。mock：scripts/mock_comfly_server.py"""
     comfly_api_base: Optional[str] = None
-    # comfly_api_key：不作为用户凭据兜底；爆款TVC / comfly.veo 仅使用技能商店 UserComflyConfig。
+    # comfly_api_key：不作为用户凭据兜底；爆款TVC / comfly.daihuo 仅使用技能商店 UserComflyConfig。
     comfly_api_key: Optional[str] = None
     """Chat 路径：以 / 开头则相对 API 主机根（默认 /v1/chat/completions，与 Comfly 文档一致）；否则拼在 comfly_api_base 后（如 chat/completions 用于 base 已含 /v1 的旧配置）"""
     comfly_chat_completions_path: str = "/v1/chat/completions"

@@ -1,4 +1,4 @@
-"""爆款TVC 技能内的分步 Veo 能力：供本机 MCP invoke_capability(comfly.veo) 调用。"""
+"""爆款TVC 技能内的分步 Veo 能力：供本机 MCP invoke_capability(comfly.daihuo) 调用。"""
 import ipaddress
 import logging
 from typing import Any, Dict, Optional
@@ -80,22 +80,24 @@ class ComflyUserConfigBody(BaseModel):
     api_base: Optional[str] = None
 
 
-@router.get("/api/comfly/config", summary="爆款TVC：Comfly 凭据状态（技能卡片）")
+@router.get("/api/comfly/config", summary="爆款TVC：凭据状态（Phase 2 起强制走平台）")
 async def get_comfly_user_config(
     current_user: _ServerUser = Depends(_resolve_comfly_config_user),
     db: Session = Depends(get_db),
 ):
-    row = db.query(UserComflyConfig).filter(UserComflyConfig.user_id == current_user.id).first()
-    uk = (row.api_key or "").strip() if row else ""
-    ub = (row.api_base or "").strip().rstrip("/") if row else ""
-    hint = _default_comfly_api_base()
-    effective = bool(uk)
+    """Phase 2 改造后：爆款TVC 强制走云端 Comfly proxy + 龙虾积分计费，
+    用户无需自配 Comfly Key。这里始终返回 effective_ready=True，
+    UI 可以隐藏 Key 配置入口；老 UserComflyConfig 数据仍保留供回滚。
+    """
+    proxy_root = (getattr(settings, "auth_server_base", None) or "").strip().rstrip("/")
     return {
-        "has_user_key": bool(uk),
-        "masked_user_key": _mask_secret(uk) if uk else "",
-        "user_api_base": ub,
-        "default_api_base_hint": hint,
-        "effective_ready": effective,
+        "has_user_key": False,
+        "masked_user_key": "",
+        "user_api_base": "",
+        "default_api_base_hint": f"{proxy_root}/api/comfly-proxy" if proxy_root else "",
+        "effective_ready": bool(proxy_root),
+        "platform_managed": True,
+        "platform_message": "爆款TVC 已走平台 Comfly Token + 龙虾积分计费（按段计费），无需配置个人 Key。",
     }
 
 

@@ -197,8 +197,8 @@
         "image_request_style": "openai_images"
       },
       "capabilities": {
-        "comfly.veo": {
-          "description": "（单段/分步调试）Comfly + Veo 图生视频：invoke_capability(capability_id=comfly.veo，payload.action=upload|generate_prompts|submit_video|poll_video)。成片优先用 comfly.veo.daihuo_pipeline。",
+        "comfly.daihuo": {
+          "description": "（单段/分步调试）Comfly + Veo 图生视频：invoke_capability(capability_id=comfly.daihuo，payload.action=upload|generate_prompts|submit_video|poll_video)。成片优先用 comfly.daihuo.pipeline。",
           "upstream": "local",
           "upstream_tool": "invoke",
           "enabled": true,
@@ -255,7 +255,7 @@
             ]
           }
         },
-        "comfly.veo.daihuo_pipeline": {
+        "comfly.daihuo.pipeline": {
           "description": "爆款TVC 整包成片：action=start_pipeline + asset_id（或 image_url）+ auto_save=true 即可，MCP 自动轮询至完成并入库；run_pipeline 为同步长请求；poll_pipeline+job_id 查进度。",
           "upstream": "local",
           "upstream_tool": "invoke",

@@ -1011,8 +1011,12 @@ var _capabilityLabels = {
   'sutui.search_models': '搜索模型',
   'sutui.guide': '查询指南',
   'sutui.transfer_url': '转存链接',
-  'comfly.veo': '视频生成(Veo)',
-  'comfly.veo.daihuo_pipeline': '带货视频',
+  // 新名（首选）
+  'comfly.daihuo': '爆款TVC 单段',
+  'comfly.daihuo.pipeline': '爆款TVC 带货视频',
+  // 老名兼容（历史 task 仍用老 capability_id 显示）
+  'comfly.veo': '爆款TVC 单段',
+  'comfly.veo.daihuo_pipeline': '爆款TVC 带货视频',
   'comfly.ecommerce.detail_pipeline': '电商详情页'
 };
 function _toolLabel(name, capId) {

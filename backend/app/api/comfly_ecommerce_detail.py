@@ -471,17 +471,19 @@ async def _resolve_optional_request_user(request: Request, db: Session) -> _Serv
         return _ServerUser(id=0)
 
 
-def _resolve_ecommerce_comfly_credentials(user_id: int, db: Session) -> tuple[str, str]:
+def _resolve_ecommerce_comfly_credentials(
+    user_id: int, db: Session, request: Optional[Request] = None
+) -> tuple[str, str]:
     if int(user_id or 0) > 0:
         try:
-            return _resolve_comfly_credentials(user_id, db)
+            return _resolve_comfly_credentials(user_id, db, request)
         except HTTPException as exc:
             logger.info(
                 "[comfly_ecommerce_detail] user comfly config unavailable, checking local fallback status=%s",
                 exc.status_code,
             )
     try:
-        return _resolve_comfly_credentials(LOCAL_COMFLY_CONFIG_USER_ID, db)
+        return _resolve_comfly_credentials(LOCAL_COMFLY_CONFIG_USER_ID, db, request)
     except HTTPException as exc:
         logger.info(
             "[comfly_ecommerce_detail] local comfly config unavailable, fallback to .env status=%s",
@@ -617,7 +619,7 @@ async def _prepare_pipeline_input(
             local_path=item.local_path,
         )
         resolved_icon_assets.append({"icon": str(item.icon or "").strip(), "url": resolved_url})
-    api_base, api_key = _resolve_ecommerce_comfly_credentials(current_user.id, db)
+    api_base, api_key = _resolve_ecommerce_comfly_credentials(current_user.id, db, request)
     return build_pipeline_input(
         product_image=product_image,
         reference_images=reference_images,

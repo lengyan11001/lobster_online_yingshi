@@ -34,8 +34,8 @@ NEW = """\t\tasync callTool(serverName, toolName, input) {
 \t\t\t\tconst cap = typeof capRaw === "string" ? capRaw.trim() : "";
 \t\t\t\tconst cnorm = cap.replace(/_/g, "").toLowerCase();
 \t\t\t\tif (cnorm === "task.getresult") timeoutMs = Math.max(timeoutMs, 21e5);
-\t\t\t\tif (cap === "comfly.veo.daihuo_pipeline") timeoutMs = Math.max(timeoutMs, 78e5);
-\t\t\t\tif (cap === "comfly.veo") timeoutMs = Math.max(timeoutMs, 24e5);
+\t\t\t\tif (cap === "comfly.daihuo.pipeline") timeoutMs = Math.max(timeoutMs, 78e5);
+\t\t\t\tif (cap === "comfly.daihuo") timeoutMs = Math.max(timeoutMs, 24e5);
 \t\t\t}
 \t\t\tif (toolName === "sync_creator_publish_data") timeoutMs = Math.max(timeoutMs, 27e5);
 \t\t\tconst toolOpts = { timeout: timeoutMs, maxTotalTimeout: timeoutMs };

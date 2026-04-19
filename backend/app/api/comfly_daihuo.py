@@ -49,7 +49,7 @@ router = APIRouter()
 
 
 class ComflyDaihuoPipelinePayload(BaseModel):
-    """与 comfly.veo 分步能力互斥：本接口一次跑完 OpenClaw 技能包内 Python 流水线。"""
+    """与 comfly.daihuo 分步能力互斥：本接口一次跑完 OpenClaw 技能包内 Python 流水线。"""
 
     asset_id: Optional[str] = Field(None, description="素材库商品图 ID（与 image_url 二选一）")
     image_url: Optional[str] = Field(None, description="公网商品图 URL（与 asset_id 二选一）")
@@ -106,10 +106,10 @@ async def _prepare_pipeline_input(
         asset_id=pl.asset_id,
         image_url=pl.image_url,
     )
-    api_base, api_key = _resolve_comfly_credentials(current_user.id, db)
+    api_base, api_key = _resolve_comfly_credentials(current_user.id, db, request)
     pipe_base = _api_base_for_pipeline(api_base)
     logger.info(
-        "[comfly.veo.daihuo_pipeline] credentials user_id=%s key_len=%s api_base=%s pipeline_base=%s",
+        "[comfly.daihuo.pipeline] credentials user_id=%s key_len=%s api_base=%s pipeline_base=%s",
         current_user.id,
         len((api_key or "").strip()),
         (api_base or "")[:120],
@@ -141,7 +141,7 @@ async def _save_pipeline_videos(
         body = SaveAssetReq(
             url=url,
             media_type="video",
-            tags="auto,comfly.veo.daihuo_pipeline",
+            tags="auto,comfly.daihuo.pipeline",
             prompt=title_hint[:500] if title_hint else None,
             model=(video_model or "")[:128] or None,
             generation_task_id=task_id[:128] if task_id else None,

@@ -90,7 +90,7 @@ def _ensure_default_user():
 
 
 def _ensure_comfly_veo_capability():
-    """已有库时补注册 comfly.veo（与 capability_catalog.json 一致）。"""
+    """已有库时补注册 comfly.daihuo（与 capability_catalog.json 一致）。"""
     catalog_path = Path(__file__).resolve().parent.parent.parent / "mcp" / "capability_catalog.json"
     if not catalog_path.exists():
         return
@@ -98,20 +98,20 @@ def _ensure_comfly_veo_capability():
         raw = json.loads(catalog_path.read_text(encoding="utf-8"))
     except Exception:
         return
-    cfg = raw.get("comfly.veo")
+    cfg = raw.get("comfly.daihuo")
     if not isinstance(cfg, dict):
         return
     db = SessionLocal()
     try:
         existing = db.query(models.CapabilityConfig).filter(
-            models.CapabilityConfig.capability_id == "comfly.veo"
+            models.CapabilityConfig.capability_id == "comfly.daihuo"
         ).first()
         if existing:
             return
         db.add(
             models.CapabilityConfig(
-                capability_id="comfly.veo",
-                description=str(cfg.get("description") or "comfly.veo"),
+                capability_id="comfly.daihuo",
+                description=str(cfg.get("description") or "comfly.daihuo"),
                 upstream=str(cfg.get("upstream") or "local"),
                 upstream_tool=str(cfg.get("upstream_tool") or "invoke"),
                 enabled=bool(cfg.get("enabled", True)),
@@ -119,16 +119,16 @@ def _ensure_comfly_veo_capability():
             )
         )
         db.commit()
-        logger.info("Seeded capability comfly.veo into CapabilityConfig")
+        logger.info("Seeded capability comfly.daihuo into CapabilityConfig")
     except Exception:
         db.rollback()
-        logger.exception("Failed to seed comfly.veo capability")
+        logger.exception("Failed to seed comfly.daihuo capability")
     finally:
         db.close()
 
 
 def _ensure_comfly_daihuo_pipeline_capability():
-    """补注册 comfly.veo.daihuo_pipeline（与 capability_catalog.json 一致）。"""
+    """补注册 comfly.daihuo.pipeline（与 capability_catalog.json 一致）。"""
     catalog_path = Path(__file__).resolve().parent.parent.parent / "mcp" / "capability_catalog.json"
     if not catalog_path.exists():
         return
@@ -136,20 +136,20 @@ def _ensure_comfly_daihuo_pipeline_capability():
         raw = json.loads(catalog_path.read_text(encoding="utf-8"))
     except Exception:
         return
-    cfg = raw.get("comfly.veo.daihuo_pipeline")
+    cfg = raw.get("comfly.daihuo.pipeline")
     if not isinstance(cfg, dict):
         return
     db = SessionLocal()
     try:
         existing = db.query(models.CapabilityConfig).filter(
-            models.CapabilityConfig.capability_id == "comfly.veo.daihuo_pipeline"
+            models.CapabilityConfig.capability_id == "comfly.daihuo.pipeline"
         ).first()
         if existing:
             return
         db.add(
             models.CapabilityConfig(
-                capability_id="comfly.veo.daihuo_pipeline",
-                description=str(cfg.get("description") or "comfly.veo.daihuo_pipeline"),
+                capability_id="comfly.daihuo.pipeline",
+                description=str(cfg.get("description") or "comfly.daihuo.pipeline"),
                 upstream=str(cfg.get("upstream") or "local"),
                 upstream_tool=str(cfg.get("upstream_tool") or "invoke"),
                 enabled=bool(cfg.get("enabled", True)),
@@ -157,10 +157,10 @@ def _ensure_comfly_daihuo_pipeline_capability():
             )
         )
         db.commit()
-        logger.info("Seeded capability comfly.veo.daihuo_pipeline into CapabilityConfig")
+        logger.info("Seeded capability comfly.daihuo.pipeline into CapabilityConfig")
     except Exception:
         db.rollback()
-        logger.exception("Failed to seed comfly.veo.daihuo_pipeline capability")
+        logger.exception("Failed to seed comfly.daihuo.pipeline capability")
     finally:
         db.close()
 
@@ -282,7 +282,7 @@ def _seed_capability_catalog():
 def _sync_missing_capabilities_from_catalog():
     """旧库已有 capability_configs 时 _seed 会跳过；OTA 带新 mcp/capability_catalog.json 后在此补插缺失行。
 
-    否则 MCP 侧已有新品能力（如 comfly.veo.daihuo_pipeline），而本机 DB 无记录，
+    否则 MCP 侧已有新品能力（如 comfly.daihuo.pipeline），而本机 DB 无记录，
     list_capabilities / 费用兜底 unit_credits 会与代码不一致，表现为「没有能力」「参考算力未知」等。
     """
     catalog_path = Path(__file__).resolve().parent.parent.parent / "mcp" / "capability_catalog.json"

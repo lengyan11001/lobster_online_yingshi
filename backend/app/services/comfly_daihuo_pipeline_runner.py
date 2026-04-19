@@ -1,4 +1,4 @@
-"""Comfly 带货「整包」流水线：运行 skills/comfly_veo3_daihuo_video 内原 OpenClaw 技能脚本，与 comfly.veo 分步 API 独立。"""
+"""Comfly 带货「整包」流水线：运行 skills/comfly_veo3_daihuo_video 内原 OpenClaw 技能脚本，与 comfly.daihuo 分步 API 独立。"""
 from __future__ import annotations
 
 import importlib.util
@@ -165,7 +165,7 @@ def save_merged_local_pipeline_video(
         source_url=source_url or None,
         prompt="带货流水线合并成片",
         model=(video_model or "")[:128] or None,
-        tags="auto,comfly.veo.daihuo_pipeline,merged_final",
+        tags="auto,comfly.daihuo.pipeline,merged_final",
         meta={"origin": "daihuo_merged", "merged_path": str(p.resolve())},
     )
     db.add(asset)

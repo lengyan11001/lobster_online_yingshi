@@ -541,8 +541,8 @@
       ]
     }
   },
-  "comfly.veo": {
-    "description": "（技能「爆款TVC」内的单段/分步能力）Comfly + Veo 图生视频：本机 MCP 转发至后端。用户日常「用爆款TVC做视频」优先用 comfly.veo.daihuo_pipeline。本能力：submit 走 Comfly POST /v2/videos/generations；poll_video 走 GET …/{task_id}（勿用 task.get_result）。upload|generate_prompts|submit_video|poll_video。勿与 video.generate（速推）混用。",
+  "comfly.daihuo": {
+    "description": "（技能「爆款TVC」内的单段/分步能力）Comfly + Veo 图生视频：本机 MCP 转发至后端。用户日常「用爆款TVC做视频」优先用 comfly.daihuo.pipeline。本能力：submit 走 Comfly POST /v2/videos/generations；poll_video 走 GET …/{task_id}（勿用 task.get_result）。upload|generate_prompts|submit_video|poll_video。勿与 video.generate（速推）混用。",
     "upstream": "local",
     "upstream_tool": "invoke",
     "enabled": true,
@@ -612,8 +612,8 @@
       ]
     }
   },
-  "comfly.veo.daihuo_pipeline": {
-    "description": "技能「爆款TVC」整包成片：一次跑完分镜→多段 Veo→可选 FFmpeg 拼接；用户可说「用爆款TVC和这个素材做视频」。卡片只需配置 Comfly API Key/根地址，无需配分镜参数。action：start_pipeline（推荐：asset_id 或 image_url，MCP 自动轮询至完成，auto_save 默认入库）；run_pipeline（同步长请求，超时约 7200s）；poll_pipeline（查 job_id）。running 时 progress 来自 manifest.json。与 comfly.veo 分步独立。",
+  "comfly.daihuo.pipeline": {
+    "description": "技能「爆款TVC」整包成片：一次跑完分镜→多段 Veo→可选 FFmpeg 拼接；用户可说「用爆款TVC和这个素材做视频」。卡片只需配置 Comfly API Key/根地址，无需配分镜参数。action：start_pipeline（推荐：asset_id 或 image_url，MCP 自动轮询至完成，auto_save 默认入库）；run_pipeline（同步长请求，超时约 7200s）；poll_pipeline（查 job_id）。running 时 progress 来自 manifest.json。与 comfly.daihuo 分步独立。",
     "upstream": "local",
     "upstream_tool": "invoke",
     "enabled": true,

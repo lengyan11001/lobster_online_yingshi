@@ -232,7 +232,7 @@ function _renderComflyCard() {
   return '<div class="skill-store-card comfly-veo-card" style="border-color:rgba(245,158,11,0.38);background:linear-gradient(135deg,rgba(245,158,11,0.07),transparent);">' +
     '<div class="card-label">生成 · 内置 ' + statusBadge + '</div>' +
     '<div class="card-value">爆款TVC</div>' +
-    '<div class="card-desc">整包成片走 <code>comfly.veo.daihuo_pipeline</code>（start_pipeline + 素材）；单段调试可走 <code>comfly.veo</code>。均与速推 <code>video.generate</code> 无关。</div>' +
+    '<div class="card-desc">整包成片走 <code>comfly.daihuo.pipeline</code>（start_pipeline + 素材）；单段调试可走 <code>comfly.daihuo</code>。均与速推 <code>video.generate</code> 无关。</div>' +
     sub +
     '<div class="card-tags"><span class="tag">爆款TVC</span><span class="tag">TVC</span><span class="tag">Veo</span><span class="tag">Comfly</span></div>' +
     '<div class="card-actions"><button type="button" class="btn btn-primary btn-sm" id="comflyConfigBtn">配置</button></div></div>';

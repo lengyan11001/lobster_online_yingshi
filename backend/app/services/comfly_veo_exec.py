@@ -1,10 +1,17 @@
-"""爆款TVC / Comfly Veo：upload 本机解析图 URL；其余步骤走 Comfly OpenAI 兼容 chat + 可配置视频任务路径。"""
+"""爆款TVC / Comfly Veo：upload 本机解析图 URL；其余步骤走云端 Comfly proxy + 龙虾积分计费。
+
+Phase 2 改造（2026-04 起）：
+- 凭据从用户本机 UserComflyConfig 改为云端 Comfly proxy + 用户 JWT
+- 所有 Comfly 调用透传到 lobster-server /api/comfly-proxy/* （服务端用 server token 转发）
+- 计费按 comfly_pricing.json 扣龙虾积分（参见 lobster-server/backend/app/api/comfly_proxy.py）
+"""
 from __future__ import annotations
 
 import json
 import logging
+import os
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from urllib.parse import quote, urljoin, urlparse, urlunparse
 
 import httpx
@@ -14,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from ..core.config import settings
 from ..api.assets import _is_internal_asset_http_url, get_asset_public_url
-from ..models import Asset, UserComflyConfig
+from ..models import Asset, UserComflyConfig  # UserComflyConfig 仍被高级用户配置 UI 使用，但 Comfly 调用不再读它
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +36,7 @@ def _default_comfly_api_base() -> str:
 
 
 def _comfly_upload_failure_detail(aid: str, user_id: int, db: Session) -> str:
-    """说明 comfly.veo upload 无法得到公网图链时的常见原因（便于用户自查 asset_id）。"""
+    """说明 comfly.daihuo upload 无法得到公网图链时的常见原因（便于用户自查 asset_id）。"""
     aid_l = (aid or "").strip().lower()
     row_mine = (
         db.query(Asset)
@@ -71,24 +78,50 @@ def _reject_if_sutui_style_model(field: str, value: str) -> None:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"{field}「{s}」为速推侧 model id 形态；comfly.veo 须使用 Comfly 文档中的模型名"
+                f"{field}「{s}」为速推侧 model id 形态；comfly.daihuo 须使用 Comfly 文档中的模型名"
                 f"（视频默认 {_DEFAULT_VIDEO_MODEL}、分析默认 {_DEFAULT_ANALYSIS_MODEL}），"
                 "勿与 invoke_capability(capability_id=\"video.generate\") 的 payload.model 混用。"
             ),
         )
 
 
-def _resolve_comfly_credentials(user_id: int, db: Session) -> tuple[str, str]:
-    """当前仅要求用户保存 api_key；api_base 统一走服务端内置配置。"""
-    row = db.query(UserComflyConfig).filter(UserComflyConfig.user_id == user_id).first()
-    ukey = (row.api_key or "").strip() if row else ""
-    ubase = _default_comfly_api_base()
-    if not ukey:
+def _resolve_comfly_credentials(
+    user_id: int, db: Session, request: Optional[Request] = None
+) -> tuple[str, str]:
+    """爆款TVC / Comfly 系列能力的统一凭据解析（Phase 2 改造后强制走云端 proxy）。
+
+    返回：
+    - api_base = `<auth_server_base>/api/comfly-proxy`（pipeline 脚本会拼 /v1/chat/completions 等）
+    - api_key  = 用户 JWT（lobster-server proxy 端用此 JWT 鉴权 + 按 comfly_pricing 扣龙虾积分）
+
+    UserComflyConfig 表保留但不再被 Comfly 调用读取——意味着「按用户 Comfly 余额扣费」彻底
+    改为「按龙虾积分扣费」。如需保留某用户走自己 Comfly Key（试点/调试）的能力，可在此处
+    特判 user_id ∈ 白名单 + 读 UserComflyConfig 走旧逻辑（默认关闭）。
+
+    request 可选：传入时从 Authorization 头拿 JWT；不传时回退到 LOBSTER_COMFLY_PROXY_DEFAULT_TOKEN
+    （仅开发场景）。生产/正常对话调用必须传 request。
+    """
+    proxy_root = (getattr(settings, "auth_server_base", None) or "").strip().rstrip("/")
+    if not proxy_root:
         raise HTTPException(
             status_code=503,
-            detail="未配置 Comfly API Key：请在技能商店「爆款TVC」中填写个人 Key。",
+            detail="未配置 AUTH_SERVER_BASE，无法走云端 Comfly proxy。请在 .env 设置 AUTH_SERVER_BASE。",
         )
-    return ubase, ukey
+    proxy_base = f"{proxy_root}/api/comfly-proxy"
+
+    jwt = ""
+    if request is not None:
+        auth = (request.headers.get("Authorization") or "").strip()
+        if auth.lower().startswith("bearer "):
+            jwt = auth[7:].strip()
+    if not jwt:
+        jwt = (os.environ.get("LOBSTER_COMFLY_PROXY_DEFAULT_TOKEN") or "").strip()
+    if not jwt:
+        raise HTTPException(
+            status_code=401,
+            detail="无法获取用户 JWT。请重新登录后再调用爆款TVC / Comfly 能力。",
+        )
+    return proxy_base, jwt
 
 
 def _join_url(api_base: str, path: str) -> str:
@@ -304,7 +337,7 @@ async def run_comfly_veo(
         aid = aid_raw.lower()
         if not aid:
             logger.warning(
-                "[comfly.veo] upload 缺少 asset_id；payload_keys=%s（多为模型未把附图 ID 写入工具参数，非素材库无此条）",
+                "[comfly.daihuo] upload 缺少 asset_id；payload_keys=%s（多为模型未把附图 ID 写入工具参数，非素材库无此条）",
                 sorted(payload.keys()),
             )
             raise HTTPException(
@@ -327,11 +360,11 @@ async def run_comfly_veo(
                 status_code=400,
                 detail=_comfly_upload_failure_detail(aid, user_id, db),
             )
-        logger.info("[comfly.veo] upload asset_id=%s ok", canonical_id)
+        logger.info("[comfly.daihuo] upload asset_id=%s ok", canonical_id)
         return {"ok": True, "action": action, "asset_id": canonical_id, "image_url": url}
 
     if action == "generate_prompts":
-        api_base, api_key = _resolve_comfly_credentials(user_id, db)
+        api_base, api_key = _resolve_comfly_credentials(user_id, db, request)
         image_url = (payload.get("image_url") or "").strip()
         if not image_url:
             raise HTTPException(status_code=400, detail="generate_prompts 需要 image_url")
@@ -374,11 +407,11 @@ async def run_comfly_veo(
         except (KeyError, IndexError, TypeError):
             content = json.dumps(data, ensure_ascii=False)[:4000]
         prompts = _parse_prompts_from_content(str(content))
-        logger.info("[comfly.veo] generate_prompts count=%s", len(prompts))
+        logger.info("[comfly.daihuo] generate_prompts count=%s", len(prompts))
         return {"ok": True, "action": action, "prompts": prompts, "raw": data}
 
     if action == "submit_video":
-        api_base, api_key = _resolve_comfly_credentials(user_id, db)
+        api_base, api_key = _resolve_comfly_credentials(user_id, db, request)
         prompt = _prompt_for_veo_submit(payload)
         images = _images_for_veo_submit(payload, "")
         if not prompt:
@@ -424,7 +457,7 @@ async def run_comfly_veo(
         _dd: Dict[str, Any] = _data if isinstance(_data, dict) else {}
         task_id = out.get("task_id") or out.get("id") or _dd.get("task_id") or _dd.get("id")
         tid = str(task_id).strip() if task_id else None
-        logger.info("[comfly.veo] submit_video task_id=%s", tid or "(none)")
+        logger.info("[comfly.daihuo] submit_video task_id=%s", tid or "(none)")
         return {
             "ok": True,
             "action": action,
@@ -434,7 +467,7 @@ async def run_comfly_veo(
         }
 
     if action == "poll_video":
-        api_base, api_key = _resolve_comfly_credentials(user_id, db)
+        api_base, api_key = _resolve_comfly_credentials(user_id, db, request)
         task_id = (payload.get("task_id") or "").strip()
         if not task_id:
             raise HTTPException(status_code=400, detail="poll_video 需要 task_id")
@@ -454,7 +487,7 @@ async def run_comfly_veo(
                 detail=f"Comfly 查询任务失败 HTTP {r.status_code}: {(r.text or '')[:1000]}",
             )
         result = r.json() if r.content else {}
-        logger.info("[comfly.veo] poll_video task_id=%s", task_id)
+        logger.info("[comfly.daihuo] poll_video task_id=%s", task_id)
         return {"ok": True, "action": action, "task_id": task_id, "result": result}
 
     raise HTTPException(status_code=400, detail=f"未知 action: {action}，支持 upload|generate_prompts|submit_video|poll_video")

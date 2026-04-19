@@ -1089,7 +1089,7 @@ def _redirect_video_generate_to_daihuo_if_tvc(
     args: Dict[str, Any],
     user_message: str,
 ) -> None:
-    """用户消息含 TVC/爆款/带货 关键词但 LLM 误走 video.generate 时，自动重定向到 comfly.veo.daihuo_pipeline。"""
+    """用户消息含 TVC/爆款/带货 关键词但 LLM 误走 video.generate 时，自动重定向到 comfly.daihuo.pipeline。"""
     if not args or (args.get("capability_id") or "").strip() != "video.generate":
         return
     if not (user_message and _TVC_KEYWORDS_RE.search(user_message)):
@@ -1097,7 +1097,7 @@ def _redirect_video_generate_to_daihuo_if_tvc(
     pl = args.get("payload") if isinstance(args.get("payload"), dict) else {}
     asset_id = (pl.get("asset_id") or "").strip()
     image_url = (pl.get("image_url") or "").strip()
-    args["capability_id"] = "comfly.veo.daihuo_pipeline"
+    args["capability_id"] = "comfly.daihuo.pipeline"
     new_pl: Dict[str, Any] = {"action": "start_pipeline", "auto_save": True}
     if asset_id:
         new_pl["asset_id"] = asset_id
@@ -1105,7 +1105,7 @@ def _redirect_video_generate_to_daihuo_if_tvc(
         new_pl["image_url"] = image_url
     args["payload"] = new_pl
     logger.info(
-        "[CHAT] 用户消息含TVC关键词，已将 video.generate 重定向到 comfly.veo.daihuo_pipeline asset_id=%s",
+        "[CHAT] 用户消息含TVC关键词，已将 video.generate 重定向到 comfly.daihuo.pipeline asset_id=%s",
         asset_id or image_url or "-",
     )
 
@@ -1116,7 +1116,7 @@ def _ensure_daihuo_pipeline_asset_or_url(
     attachment_urls: List[str],
 ) -> None:
     """爆款 TVC 整包：模型常漏传 asset_id/image_url；本条消息有附图时自动补全（与 video.generate 注入一致）。"""
-    if not args or (args.get("capability_id") or "").strip() != "comfly.veo.daihuo_pipeline":
+    if not args or (args.get("capability_id") or "").strip() != "comfly.daihuo.pipeline":
         return
     raw_pl = args.get("payload")
     pl: Dict[str, Any] = dict(raw_pl) if isinstance(raw_pl, dict) else {}
@@ -1421,7 +1421,7 @@ def _invoke_model_for_cost_confirm(capability_id: Optional[str], args: Dict[str,
     if capability_id in ("image.generate", "video.generate"):
         m = (pl.get("model") or pl.get("model_id") or "").strip()
         return m or None
-    if capability_id == "comfly.veo":
+    if capability_id == "comfly.daihuo":
         if (pl.get("action") or "").strip() not in ("submit_video", "generate_prompts"):
             return None
         m = (pl.get("video_model") or pl.get("model") or "").strip()
@@ -2112,7 +2112,7 @@ def _normalize_invoke_daihuo_pipeline_args_for_chat(args: Dict[str, Any]) -> Dic
     """与 mcp/http_server._normalize_invoke_daihuo_pipeline_args 一致，避免对话层与 MCP 参数形态不一致。"""
     if not isinstance(args, dict):
         return args
-    if (args.get("capability_id") or "").strip() != "comfly.veo.daihuo_pipeline":
+    if (args.get("capability_id") or "").strip() != "comfly.daihuo.pipeline":
         return args
     raw_pl = args.get("payload")
     pl: Dict[str, Any] = dict(raw_pl) if isinstance(raw_pl, dict) else {}
@@ -2325,7 +2325,7 @@ async def _chat_daihuo_inline_start_and_poll(
             detail = (sr.text or "")[:1200]
         return (
             json.dumps(
-                {"capability_id": "comfly.veo.daihuo_pipeline", "ok": False, "error": str(detail)},
+                {"capability_id": "comfly.daihuo.pipeline", "ok": False, "error": str(detail)},
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -2337,7 +2337,7 @@ async def _chat_daihuo_inline_start_and_poll(
         return (
             json.dumps(
                 {
-                    "capability_id": "comfly.veo.daihuo_pipeline",
+                    "capability_id": "comfly.daihuo.pipeline",
                     "ok": False,
                     "error": "start 未返回有效 job_id",
                     "raw": start_data,
@@ -2372,7 +2372,7 @@ async def _chat_daihuo_inline_start_and_poll(
     st = (last.get("status") or "").strip().lower()
     ok = st == "completed" and last.get("ok", True) is not False
     wrap = {
-        "capability_id": "comfly.veo.daihuo_pipeline",
+        "capability_id": "comfly.daihuo.pipeline",
         "ok": ok,
         "job_id": job_id,
         "result": last,
@@ -2420,7 +2420,7 @@ async def _resume_daihuo_job_poll_only(
     st = (last.get("status") or "").strip().lower()
     ok = st == "completed" and last.get("ok", True) is not False
     wrap = {
-        "capability_id": "comfly.veo.daihuo_pipeline",
+        "capability_id": "comfly.daihuo.pipeline",
         "ok": ok,
         "job_id": jid,
         "result": last,
@@ -2446,7 +2446,7 @@ def _parse_daihuo_pipeline_tool_result(result_text: str) -> Optional[Dict[str, A
         return None
     if not isinstance(d, dict):
         return None
-    if (d.get("capability_id") or "").strip() != "comfly.veo.daihuo_pipeline":
+    if (d.get("capability_id") or "").strip() != "comfly.daihuo.pipeline":
         return None
     return d
 
@@ -2515,7 +2515,7 @@ def _saved_assets_from_daihuo_pipeline_tool_result(result_text: str) -> List[Dic
             "source_url": su or url,
             "url": url or su,
             "media_type": mt,
-            "tags": "auto,comfly.veo.daihuo_pipeline",
+            "tags": "auto,comfly.daihuo.pipeline",
         }
         if aid:
             one["asset_id"] = aid
@@ -2539,7 +2539,7 @@ def _daihuo_polling_final_progress_event(*, result_text: str, task_id: str) -> D
         "type": "tool_end",
         "name": "invoke_capability",
         "preview": res[:200],
-        "capability_id": "comfly.veo.daihuo_pipeline",
+        "capability_id": "comfly.daihuo.pipeline",
         "phase": "task_polling",
         "in_progress": False,
         "media_type": "video",
@@ -2580,7 +2580,7 @@ async def _exec_tool(
     if name == "invoke_capability" and (args.get("capability_id") or "").strip() == "task.get_result":
         args = _normalize_invoke_task_get_result_args(args)
     capability_id = (args.get("capability_id") or "").strip() if name == "invoke_capability" else None
-    if name == "invoke_capability" and capability_id == "comfly.veo.daihuo_pipeline":
+    if name == "invoke_capability" and capability_id == "comfly.daihuo.pipeline":
         args = _normalize_invoke_daihuo_pipeline_args_for_chat(dict(args))
     phase = None
     if capability_id == "video.generate":
@@ -2589,11 +2589,11 @@ async def _exec_tool(
         phase = "image_submit"
     elif capability_id == "task.get_result":
         phase = "task_polling"
-    elif capability_id == "comfly.veo":
+    elif capability_id == "comfly.daihuo":
         pl_cv = args.get("payload") if isinstance(args.get("payload"), dict) else {}
         if (pl_cv.get("action") or "").strip() == "poll_video":
             phase = "task_polling"
-    elif capability_id == "comfly.veo.daihuo_pipeline":
+    elif capability_id == "comfly.daihuo.pipeline":
         pl_dh = args.get("payload") if isinstance(args.get("payload"), dict) else {}
         dh_act = (pl_dh.get("action") or "").strip() or "run_pipeline"
         if dh_act != "poll_pipeline":
@@ -2637,7 +2637,7 @@ async def _exec_tool(
         _tid_s = _task_id_from_invoke_capability_args(args)
         if _tid_s:
             ev_start["task_id"] = _tid_s
-    elif capability_id == "comfly.veo":
+    elif capability_id == "comfly.daihuo":
         _pl_cv_s = args.get("payload") if isinstance(args.get("payload"), dict) else {}
         if (_pl_cv_s.get("action") or "").strip() == "poll_video":
             _tv_s = str(_pl_cv_s.get("task_id") or "").strip()
@@ -2721,11 +2721,11 @@ async def _exec_tool(
     timeout = 120.0
     if name == "invoke_capability" and (args.get("capability_id") or "").strip() == "task.get_result":
         timeout = 35 * 60.0  # 35 min
-    elif name == "invoke_capability" and (args.get("capability_id") or "").strip() == "comfly.veo.daihuo_pipeline":
+    elif name == "invoke_capability" and (args.get("capability_id") or "").strip() == "comfly.daihuo.pipeline":
         # MCP 在同一次 tools/call 内轮询整包任务最久约 2h（mcp/http_server _COMFLY_DAIHUO_MCP_POLL_MAX_SEC）；
         # 对话层默认 120s 会先 ReadTimeout，用户只看到「失败且无详情」。
         timeout = 130 * 60.0
-    elif name == "invoke_capability" and (args.get("capability_id") or "").strip() == "comfly.veo":
+    elif name == "invoke_capability" and (args.get("capability_id") or "").strip() == "comfly.daihuo":
         pl_cv = args.get("payload") if isinstance(args.get("payload"), dict) else {}
         if (pl_cv.get("action") or "").strip() == "submit_video":
             timeout = 40 * 60.0  # MCP 内对 Veo 阻塞轮询，需长于默认 120s
@@ -2811,15 +2811,15 @@ async def _exec_tool(
             success = False
             safe_tid = re.sub(r"[^\w\-]", "", tid_veo) or tid_veo[:128]
             result_text = (
-                "此 task_id 来自 Comfly Veo（comfly.veo 的 submit_video），不是速推异步任务。"
+                "此 task_id 来自 Comfly Veo（comfly.daihuo 的 submit_video），不是速推异步任务。"
                 "对速推调用 task.get_result 会报「任务不存在」或类似错误。"
-                "请改用：invoke_capability(capability_id=\"comfly.veo\", "
+                "请改用：invoke_capability(capability_id=\"comfly.daihuo\", "
                 'payload={"action":"poll_video","task_id":"'
                 + safe_tid
                 + '"}) 轮询直至上游返回完成与视频地址。'
             )
             logger.warning(
-                "[对话] 已拦截误用 task.get_result（Comfly Veo task_id=%s），应使用 comfly.veo poll_video",
+                "[对话] 已拦截误用 task.get_result（Comfly Veo task_id=%s），应使用 comfly.daihuo poll_video",
                 safe_tid[:96],
             )
 
@@ -2831,7 +2831,7 @@ async def _exec_tool(
     daihuo_inline_done = False
     if (
         name == "invoke_capability"
-        and capability_id == "comfly.veo.daihuo_pipeline"
+        and capability_id == "comfly.daihuo.pipeline"
         and progress_cb is not None
         and request is not None
         and not cost_confirm_cancel
@@ -2848,7 +2848,7 @@ async def _exec_tool(
                 logger.warning("[对话] 爆款TVC 内联 start/轮询异常: %s", e, exc_info=True)
                 result_text = json.dumps(
                     {
-                        "capability_id": "comfly.veo.daihuo_pipeline",
+                        "capability_id": "comfly.daihuo.pipeline",
                         "ok": False,
                         "error": _friendly_tool_error(e),
                     },
@@ -2991,15 +2991,15 @@ async def _exec_tool(
     elif phase:
         ev_end["phase"] = phase
     if phase == "task_polling":
-        if capability_id == "comfly.veo":
+        if capability_id == "comfly.daihuo":
             ev_end["in_progress"] = _comfly_veo_poll_should_continue(result_text)
             if not ev_end.get("in_progress"):
                 ev_end["media_type"] = "video"
             logger.info(
-                "[进度] comfly.veo poll 单次返回 in_progress=%s",
+                "[进度] comfly.daihuo poll 单次返回 in_progress=%s",
                 ev_end.get("in_progress"),
             )
-        elif capability_id == "comfly.veo.daihuo_pipeline":
+        elif capability_id == "comfly.daihuo.pipeline":
             ev_end["in_progress"] = _daihuo_pipeline_result_in_progress(result_text)
             if not ev_end.get("in_progress"):
                 ev_end["media_type"] = "video"
@@ -3059,12 +3059,12 @@ async def _exec_tool(
                         tid_poll or "-",
                     )
         tid_sse = ""
-        if capability_id == "comfly.veo":
+        if capability_id == "comfly.daihuo":
             pl_cv_sse = args.get("payload") if isinstance(args.get("payload"), dict) else {}
             tid_sse = str(pl_cv_sse.get("task_id") or "").strip()
         elif (capability_id or "").strip() == "task.get_result":
             tid_sse = _task_id_from_invoke_capability_args(args)
-        elif capability_id == "comfly.veo.daihuo_pipeline":
+        elif capability_id == "comfly.daihuo.pipeline":
             tid_sse = _extract_daihuo_resume_token_from_result_text(result_text)
         if tid_sse:
             ev_end["task_id"] = tid_sse
@@ -3099,7 +3099,7 @@ async def _exec_tool(
         tid_sub = _extract_task_id_from_result(result_text)
         if tid_sub:
             ev_end["task_id"] = tid_sub
-    if success and name == "invoke_capability" and capability_id == "comfly.veo":
+    if success and name == "invoke_capability" and capability_id == "comfly.daihuo":
         tid_veo_submit = _extract_comfly_veo_task_id_from_submit_result(result_text)
         if tid_veo_submit:
             ev_end["task_id"] = tid_veo_submit
@@ -3118,7 +3118,7 @@ async def _exec_tool(
                 _apply_generation_hints_to_saved_assets(sse_cf, tid_cf)
             ev_end["saved_assets"] = sse_cf
             logger.info(
-                "[对话] comfly.veo poll 终态 tool_end saved_assets 条数=%s task_id=%s",
+                "[对话] comfly.daihuo poll 终态 tool_end saved_assets 条数=%s task_id=%s",
                 len(sse_cf),
                 tid_cf or "-",
             )
@@ -3466,7 +3466,7 @@ def _user_visible_daihuo_pipeline_json_reply(raw: str) -> str:
         return ""
     if not isinstance(d, dict):
         return ""
-    if (d.get("capability_id") or "").strip() != "comfly.veo.daihuo_pipeline":
+    if (d.get("capability_id") or "").strip() != "comfly.daihuo.pipeline":
         return ""
     inner = d.get("result")
     st = ""
@@ -3495,7 +3495,7 @@ def _user_visible_daihuo_pipeline_json_reply(raw: str) -> str:
 def _reply_for_user(reply: str) -> str:
     """Strip DSML from reply so user never sees raw function_calls; use friendly text if nothing left."""
     r0 = (reply or "").strip()
-    if r0.startswith("{") and "comfly.veo.daihuo_pipeline" in r0:
+    if r0.startswith("{") and "comfly.daihuo.pipeline" in r0:
         dh = _user_visible_daihuo_pipeline_json_reply(r0)
         if dh:
             return dh
@@ -3734,7 +3734,7 @@ def _extract_video_urls_from_task_result(result_text: str) -> List[Dict[str, Any
 
 
 def _parse_comfly_veo_mcp_tool_result(result_text: str) -> Optional[Dict[str, Any]]:
-    """MCP invoke_capability(comfly.veo) 文本为 JSON：{"capability_id":"comfly.veo","result":{...}}。"""
+    """MCP invoke_capability(comfly.daihuo) 文本为 JSON：{"capability_id":"comfly.daihuo","result":{...}}。"""
     if not (result_text or "").strip():
         return None
     raw = result_text.strip()
@@ -3746,7 +3746,7 @@ def _parse_comfly_veo_mcp_tool_result(result_text: str) -> Optional[Dict[str, An
         return None
     if not isinstance(d, dict):
         return None
-    if (d.get("capability_id") or "").strip() != "comfly.veo":
+    if (d.get("capability_id") or "").strip() != "comfly.daihuo":
         return None
     r1 = d.get("result")
     if isinstance(r1, str):
@@ -3826,11 +3826,11 @@ def _maybe_register_comfly_veo_submit_hint(result_text: str, invoke_args: Dict[s
                 prompt = xs
                 break
     model = str(pl_root.get("video_model") or pl_root.get("model") or "").strip()
-    _register_generation_hint_for_task(tid, {"prompt": prompt, "model": model}, "comfly.veo")
+    _register_generation_hint_for_task(tid, {"prompt": prompt, "model": model}, "comfly.daihuo")
 
 
 def _saved_assets_from_comfly_veo_poll_success(result_text: str) -> List[Dict[str, Any]]:
-    """comfly.veo poll_video 上游终态且含视频直链时，供 SSE saved_assets + 前端 save-url。"""
+    """comfly.daihuo poll_video 上游终态且含视频直链时，供 SSE saved_assets + 前端 save-url。"""
     r1 = _parse_comfly_veo_mcp_tool_result(result_text)
     if not r1 or not r1.get("ok", True):
         return []
@@ -3857,7 +3857,7 @@ def _saved_assets_from_comfly_veo_poll_success(result_text: str) -> List[Dict[st
             "source_url": url,
             "media_type": "video",
             "generation_task_id": tid[:128] if tid else "",
-            "tags": "auto,comfly.veo",
+            "tags": "auto,comfly.daihuo",
         }
     ]
 
@@ -3938,7 +3938,7 @@ def _extract_comfly_veo_task_id_from_submit_result(result_text: str) -> str:
 
 
 def _should_auto_poll_comfly_veo_after_submit(invoke_args: Dict[str, Any], submit_res: str) -> bool:
-    if (invoke_args.get("capability_id") or "").strip() != "comfly.veo":
+    if (invoke_args.get("capability_id") or "").strip() != "comfly.daihuo":
         return False
     # 勿依赖 invoke_args.payload.action：日志中常见模型把参数摊在顶层（如 capability_id+prompt+url），
     # MCP 归一化后仍能 submit 成功；若以 payload 为准会误判为不轮询（见 app.log 09:30:35 tool_call keys）。
@@ -3963,13 +3963,13 @@ def _comfly_veo_poll_result_hint(result_text: str) -> str:
 
 
 def _comfly_veo_polling_final_progress_event(*, result_text: str, task_id: str) -> Dict[str, Any]:
-    """comfly.veo 后台多轮 poll 结束后补发 tool_end（与 task.get_result 轮询补发同理）。"""
+    """comfly.daihuo 后台多轮 poll 结束后补发 tool_end（与 task.get_result 轮询补发同理）。"""
     res = result_text or ""
     ev: Dict[str, Any] = {
         "type": "tool_end",
         "name": "invoke_capability",
         "preview": res[:200],
-        "capability_id": "comfly.veo",
+        "capability_id": "comfly.daihuo",
         "phase": "task_polling",
         "in_progress": False,
         "media_type": "video",
@@ -3988,7 +3988,7 @@ def _comfly_veo_polling_final_progress_event(*, result_text: str, task_id: str) 
             if _comfly_veo_status_is_failed(st):
                 ev["success"] = False
     logger.info(
-        "[对话轮询] comfly.veo 终态补发 tool_end saved_assets 条数=%s task_id=%s",
+        "[对话轮询] comfly.daihuo 终态补发 tool_end saved_assets 条数=%s task_id=%s",
         len(sse) if sse else 0,
         tid or "-",
     )
@@ -4343,9 +4343,9 @@ async def _poll_comfly_veo_after_submit(
     tid = _extract_comfly_veo_task_id_from_submit_result(submit_res)
     if not tid:
         return submit_res
-    logger.info("[CHAT] comfly.veo submit 成功，开始自动 poll_video task_id=%s", tid[:96])
+    logger.info("[CHAT] comfly.daihuo submit 成功，开始自动 poll_video task_id=%s", tid[:96])
     poll_a: Dict[str, Any] = {
-        "capability_id": "comfly.veo",
+        "capability_id": "comfly.daihuo",
         "payload": {"action": "poll_video", "task_id": tid},
     }
     res = await _exec_tool(
@@ -4381,7 +4381,7 @@ async def _poll_comfly_veo_after_submit(
         await asyncio.sleep(poll_interval)
         waited += poll_interval
         entered_loop = True
-        logger.info("[CHAT] comfly.veo poll 轮询 %ds task_id=%s", waited, tid[:96])
+        logger.info("[CHAT] comfly.daihuo poll 轮询 %ds task_id=%s", waited, tid[:96])
         # 须在 _exec_tool 之前推送：get_result / poll 常长阻塞，否则界面会一直卡在上一条进度（如「0 秒」）
         if progress_cb:
             try:
@@ -4453,7 +4453,7 @@ async def _resume_chat_task_poll_only(
         return res or ""
     if tid.startswith("video_"):
         poll_a: Dict[str, Any] = {
-            "capability_id": "comfly.veo",
+            "capability_id": "comfly.daihuo",
             "payload": {"action": "poll_video", "task_id": tid},
         }
         res = await _exec_tool(
@@ -4481,7 +4481,7 @@ async def _resume_chat_task_poll_only(
             await asyncio.sleep(poll_interval)
             waited += poll_interval
             entered_loop = True
-            logger.info("[CHAT/stream resume] comfly.veo poll %ds task_id=%s", waited, tid[:96])
+            logger.info("[CHAT/stream resume] comfly.daihuo poll %ds task_id=%s", waited, tid[:96])
             if progress_cb:
                 try:
                     ev_pre: Dict[str, Any] = {
@@ -4784,7 +4784,7 @@ async def _chat_openai(
     use_tools = model not in _NO_TOOL_SUPPORT and bool(mcp_tools)
     _last_user_msg_for_tools = _last_user_content(msgs)
     _user_wants_veo = bool(re.search(r"(?:veo|tvc|带货|爆款)", _last_user_msg_for_tools, re.IGNORECASE))
-    _veo_only_tools = {"comfly.veo", "comfly.veo.daihuo_pipeline"}
+    _veo_only_tools = {"comfly.daihuo", "comfly.daihuo.pipeline"}
     oai_tools = [
         {
             "type": "function",

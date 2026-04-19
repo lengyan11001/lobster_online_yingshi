@@ -64,13 +64,23 @@ def invoke_should_prompt_cost_confirm(args: Dict[str, Any]) -> bool:
     cap = (args.get("capability_id") or "").strip()
     if cap in ("image.generate", "video.generate"):
         return True
-    if cap == "comfly.veo":
+    # 单段 Veo（兼容老名 comfly.veo）
+    if cap in ("comfly.daihuo", "comfly.veo"):
         pl = args.get("payload")
         action = ""
         if isinstance(pl, dict):
             action = (pl.get("action") or "").strip()
         _SKIP_ACTIONS = ("poll_video", "check_status", "get_result")
         if action not in _SKIP_ACTIONS:
+            return True
+    # 爆款TVC 整包流水线（最贵，623+ 积分）— 兼容老名 comfly.veo.daihuo_pipeline
+    if cap in ("comfly.daihuo.pipeline", "comfly.veo.daihuo_pipeline"):
+        pl = args.get("payload")
+        action = ""
+        if isinstance(pl, dict):
+            action = (pl.get("action") or "").strip()
+        # 仅 start/run 时弹确认；poll 不弹（已在跑）
+        if action in ("start_pipeline", "run_pipeline", ""):
             return True
     return False
 
