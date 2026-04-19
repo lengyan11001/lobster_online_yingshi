@@ -271,6 +271,7 @@ async def publish_from_job(
 
     saved_assets: Optional[Dict[str, Any]] = None
     product_name: Optional[str] = None
+    listing_category: Optional[str] = None
 
     mem_job = get_mem_job(job_id)
     if mem_job and mem_job.get("status") == "completed":
@@ -278,6 +279,7 @@ async def publish_from_job(
         result = mem_job.get("result") or {}
         analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
         product_name = str(analysis.get("product_name") or "").strip()
+        listing_category = str(analysis.get("listing_category") or "").strip() or str((result.get("config") or {}).get("listing_category") or "").strip()
 
     if saved_assets is None:
         db_job = db.query(EcommerceDetailJob).filter(EcommerceDetailJob.job_id == job_id).first()
@@ -287,6 +289,9 @@ async def publish_from_job(
             raise HTTPException(400, detail=f"Job 尚未完成（状态: {db_job.status}）")
         saved_assets = db_job.saved_assets or {}
         product_name = product_name or db_job.product_name or ""
+
+    meta = saved_assets.get("meta") if isinstance(saved_assets, dict) and isinstance(saved_assets.get("meta"), dict) else {}
+    listing_category = listing_category or str(meta.get("listing_category") or "").strip() or None
 
     main_ids = _extract_asset_ids_from_suite(saved_assets, "main_images")
     detail_ids = _extract_asset_ids_from_suite(saved_assets, "detail_images")
@@ -301,6 +306,7 @@ async def publish_from_job(
         platform=body.platform,
         account_nickname=body.account_nickname,
         title=title,
+        category=listing_category,
         main_image_asset_ids=main_ids,
         detail_image_asset_ids=detail_ids,
     )

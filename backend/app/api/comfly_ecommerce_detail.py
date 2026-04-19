@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -28,6 +28,7 @@ from ..services.comfly_ecommerce_detail_job_store import (
 )
 from ..services.comfly_ecommerce_detail_pipeline_runner import (
     build_pipeline_input,
+    _load_pipeline_module,
     resolve_public_image_for_pipeline,
     resolve_reference_images_for_pipeline,
     run_pipeline_sync,
@@ -86,6 +87,8 @@ class EcommerceDetailPipelinePayload(BaseModel):
     product_images: List[EcommerceProductImageItem] = Field(default_factory=list, description="结构化商品图列表，优先于 asset_id / image_url")
     product_name_hint: str = ""
     product_direction_hint: str = ""
+    listing_category: str = ""
+    export_name_prefix: str = ""
     reference_asset_ids: List[str] = Field(default_factory=list, description="补充参考图素材 ID")
     reference_image_urls: List[str] = Field(default_factory=list, description="补充参考图公网 URL")
     reference_local_paths: List[str] = Field(default_factory=list, description="本机临时参考图路径")
@@ -101,6 +104,7 @@ class EcommerceDetailPipelinePayload(BaseModel):
     output_targets: Optional[EcommerceOutputTargets] = None
     detail_template_id: str = ""
     showcase_template_id: str = ""
+    showcase_count: Optional[int] = Field(None, ge=1, le=20)
     brand: str = ""
     compliance_notes: List[str] = Field(default_factory=list)
     page_count: Optional[int] = Field(12, ge=10, le=16)
@@ -116,6 +120,37 @@ class EcommerceDetailPipelinePayload(BaseModel):
 
 class EcommerceDetailRunBody(BaseModel):
     payload: EcommerceDetailPipelinePayload
+
+
+class EcommerceShowcaseEditPayload(BaseModel):
+    page_index: int = Field(..., ge=1, description="橱窗图页码，从 1 开始")
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    hero_claim: Optional[str] = None
+    summary: Optional[str] = None
+    corner: Optional[str] = None
+
+
+class EcommerceShowcaseEditBody(BaseModel):
+    payload: EcommerceShowcaseEditPayload
+    result: Dict[str, Any] = Field(default_factory=dict)
+
+
+class EcommerceDetailEditPayload(BaseModel):
+    page_index: int = Field(..., ge=1, description="详情图页码，从 1 开始")
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    highlights: List[str] = Field(default_factory=list)
+    footer: Optional[str] = None
+
+
+class EcommerceDetailEditBody(BaseModel):
+    payload: EcommerceDetailEditPayload
+    result: Dict[str, Any] = Field(default_factory=dict)
+
+
+class EcommerceResultRehydrateBody(BaseModel):
+    result: Dict[str, Any] = Field(default_factory=dict)
 
 
 def _application_root_dir() -> Path:
@@ -180,7 +215,12 @@ def _register_local_file_url(request: Request, local_path: str) -> str:
         _LOCAL_FILE_PATH_TO_TOKEN[key] = token
         _LOCAL_FILE_TOKEN_TO_PATH[token] = path
     base = str(request.base_url).rstrip("/")
-    return f"{base}/api/comfly-ecommerce-detail/local-file/{token}"
+    version = 0
+    try:
+        version = int(path.stat().st_mtime_ns or 0)
+    except Exception:
+        version = 0
+    return f"{base}/api/comfly-ecommerce-detail/local-file/{token}?v={version}"
 
 
 def _enrich_result_file_urls(result: Any, request: Request) -> Dict[str, Any]:
@@ -209,6 +249,42 @@ def _enrich_result_file_urls(result: Any, request: Request) -> Dict[str, Any]:
         for item in payload.get("items") or []:
             _attach(item, "path", "local_path")
     return data
+
+
+def _is_allowed_local_result_path(raw_path: str) -> bool:
+    raw = str(raw_path or "").strip()
+    if not raw:
+        return False
+    try:
+        path = Path(raw).expanduser().resolve()
+    except Exception:
+        return False
+    roots = [
+        _application_root_dir().resolve(),
+        _local_upload_root().resolve(),
+    ]
+    for root in roots:
+        try:
+            path.relative_to(root)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def _sanitize_result_for_rehydrate(payload: Any) -> Any:
+    if isinstance(payload, dict):
+        out: Dict[str, Any] = {}
+        for key, value in payload.items():
+            if key in {"path", "local_path", "background_local_path"}:
+                text = str(value or "").strip()
+                out[key] = text if _is_allowed_local_result_path(text) else ""
+            else:
+                out[key] = _sanitize_result_for_rehydrate(value)
+        return out
+    if isinstance(payload, list):
+        return [_sanitize_result_for_rehydrate(item) for item in payload]
+    return payload
 
 
 def _sanitize_export_folder_name(value: str) -> str:
@@ -278,10 +354,49 @@ def _rewrite_saved_suite_paths(saved_assets: Dict[str, Any], final_dir: Path) ->
     return saved_assets
 
 
+def _rewrite_detail_edit_paths(result: Dict[str, Any], final_dir: Path) -> Dict[str, Any]:
+    detail_dir_raw = str(result.get("detail_dir") or "").strip()
+    if not detail_dir_raw:
+        return result
+    detail_dir = Path(detail_dir_raw)
+    if not detail_dir.is_dir():
+        return result
+
+    preserved_dir = final_dir / "_detail_edit"
+    preserved_dir.parent.mkdir(parents=True, exist_ok=True)
+    if preserved_dir.exists():
+        shutil.rmtree(preserved_dir, ignore_errors=True)
+    shutil.move(str(detail_dir), str(preserved_dir))
+    result["detail_dir"] = str(preserved_dir)
+
+    for item in result.get("page_results") or []:
+        if not isinstance(item, dict):
+            continue
+        filename = str(item.get("filename") or Path(str(item.get("local_path") or "")).name).strip()
+        if filename:
+            new_local = preserved_dir / filename
+            item["local_path"] = str(new_local)
+            item["relative_path"] = str(new_local.relative_to(final_dir)).replace("\\", "/")
+        bg_filename = Path(str(item.get("background_local_path") or "")).name
+        if bg_filename:
+            new_bg = preserved_dir / bg_filename
+            item["background_local_path"] = str(new_bg)
+            item["background_relative_path"] = str(new_bg.relative_to(final_dir)).replace("\\", "/")
+
+    final_long = result.get("final_long_image")
+    if isinstance(final_long, dict):
+        long_name = Path(str(final_long.get("path") or final_long.get("local_path") or "")).name
+        if long_name:
+            new_long = preserved_dir / long_name
+            final_long["path"] = str(new_long)
+            final_long["local_path"] = str(new_long)
+
+    return result
+
+
 def _finalize_visible_export(result: Dict[str, Any]) -> Dict[str, Any]:
     bundle = result.get("suite_bundle") if isinstance(result.get("suite_bundle"), dict) else {}
     root_dir = Path(str(bundle.get("root_dir") or "").strip())
-    run_dir = Path(str(result.get("run_dir") or "").strip())
     if not bundle or not root_dir.is_dir():
         return result
     final_dir = _alloc_visible_export_dir(result)
@@ -289,7 +404,7 @@ def _finalize_visible_export(result: Dict[str, Any]) -> Dict[str, Any]:
     shutil.move(str(root_dir), str(final_dir))
     result["suite_bundle"] = _rewrite_suite_bundle_paths(bundle, final_dir)
     result["run_dir"] = str(final_dir)
-    result["detail_dir"] = ""
+    result = _rewrite_detail_edit_paths(result, final_dir)
     result["preview_html_path"] = None
     result["archive_path"] = None
     return result
@@ -513,6 +628,9 @@ async def _prepare_pipeline_input(
         output_targets=pl.output_targets.model_dump(exclude_none=True) if pl.output_targets else None,
         detail_template_id=pl.detail_template_id,
         showcase_template_id=pl.showcase_template_id,
+        listing_category=pl.listing_category,
+        export_name_prefix=pl.export_name_prefix,
+        showcase_count=pl.showcase_count,
         brand=pl.brand,
         compliance_notes=list(pl.compliance_notes),
         api_key=api_key,
@@ -581,6 +699,8 @@ def _save_local_image_asset(
 
 def _save_pipeline_images(*, result: Dict[str, Any], user_id: int, db: Session) -> Dict[str, Any]:
     image_model = str((result.get("config") or {}).get("image_model") or "")
+    analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+    config = result.get("config") if isinstance(result.get("config"), dict) else {}
     saved_pages: List[Dict[str, Any]] = []
     for page in result.get("page_results") or []:
         if not isinstance(page, dict):
@@ -655,6 +775,11 @@ def _save_pipeline_images(*, result: Dict[str, Any], user_id: int, db: Session) 
             if saved_rows:
                 suite_saved[category] = saved_rows
     return {
+        "meta": {
+            "product_name": str(analysis.get("product_name") or ""),
+            "listing_category": str(analysis.get("listing_category") or config.get("listing_category") or ""),
+            "export_name_prefix": str(config.get("export_name_prefix") or ""),
+        },
         "pages": saved_pages,
         "final": {"asset": final_asset} if final_asset else None,
         "suite_bundle": suite_saved,
@@ -826,6 +951,163 @@ def _job_status_response(job: Dict[str, Any], *, include_full: bool, request: Re
     return out
 
 
+def _find_suite_category_item(result: Dict[str, Any], category: str, page_index: int) -> Optional[Dict[str, Any]]:
+    bundle = result.get("suite_bundle") if isinstance(result.get("suite_bundle"), dict) else {}
+    categories = bundle.get("categories") if isinstance(bundle.get("categories"), dict) else {}
+    payload = categories.get(category) if isinstance(categories, dict) else None
+    items = payload.get("items") if isinstance(payload, dict) and isinstance(payload.get("items"), list) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if int(item.get("page_index") or 0) == int(page_index):
+            return item
+    return None
+
+
+def _build_showcase_source_pool_from_result(result: Dict[str, Any]) -> tuple[list[Dict[str, Any]], Dict[str, str]]:
+    mod = _load_pipeline_module()
+    bundle = result.get("suite_bundle") if isinstance(result.get("suite_bundle"), dict) else {}
+    categories = bundle.get("categories") if isinstance(bundle.get("categories"), dict) else {}
+
+    def _items(category: str) -> List[Dict[str, Any]]:
+        payload = categories.get(category) if isinstance(categories, dict) else None
+        rows = payload.get("items") if isinstance(payload, dict) and isinstance(payload.get("items"), list) else []
+        return [row for row in rows if isinstance(row, dict)]
+
+    def _open_image_from_rows(rows: List[Dict[str, Any]], *, kind: str = "", suffix: str = ""):
+        for row in rows:
+            path = Path(str(row.get("path") or "")).resolve()
+            if not path.is_file():
+                continue
+            if kind and str(row.get("kind") or "") != kind:
+                continue
+            if suffix and not path.name.endswith(suffix):
+                continue
+            return mod._open_local_image(str(path))
+        return None
+
+    main_rows = _items("main_images")
+    sku_rows = _items("sku_images")
+    white_rows = _items("transparent_white_bg")
+
+    main_square_image = _open_image_from_rows(main_rows, kind="main_image_square") or _open_image_from_rows(main_rows, suffix="1440X1440.jpg")
+    main_portrait_image = _open_image_from_rows(main_rows, kind="main_image_portrait") or _open_image_from_rows(main_rows, suffix="1440X1920.jpg")
+    sku_scene_image = _open_image_from_rows(sku_rows, kind="sku_scene") or _open_image_from_rows(sku_rows, suffix="SKU场景.jpg")
+    white_bg_image = _open_image_from_rows(white_rows, kind="white_bg_image") or _open_image_from_rows(white_rows, suffix="白底.jpg")
+    product_image_rgba = _open_image_from_rows(white_rows, kind="transparent_image") or white_bg_image or main_portrait_image or main_square_image or sku_scene_image
+    if product_image_rgba is None:
+        raise HTTPException(status_code=409, detail="当前任务缺少可编辑的橱窗图源素材，请重新生成后再试")
+    return (
+        mod._build_showcase_source_pool(
+            product_image_rgba=product_image_rgba,
+            main_square_image=main_square_image,
+            main_portrait_image=main_portrait_image,
+            sku_scene_image=sku_scene_image,
+            white_bg_image=white_bg_image,
+        ),
+        {},
+    )
+
+
+def _find_page_result_entry(result: Dict[str, Any], page_index: int) -> Optional[Dict[str, Any]]:
+    rows = result.get("page_results") if isinstance(result.get("page_results"), list) else []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        if int(item.get("index") or 0) == int(page_index):
+            return item
+    return None
+
+
+def _find_page_copy_entry(result: Dict[str, Any], page_index: int) -> Optional[Dict[str, Any]]:
+    rows = result.get("pages") if isinstance(result.get("pages"), list) else []
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        if int(item.get("index") or 0) == int(page_index):
+            return item
+    return None
+
+
+def _detail_render_config_from_result(mod: Any, result: Dict[str, Any]) -> Any:
+    analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+    config_payload = result.get("config") if isinstance(result.get("config"), dict) else {}
+    detail_template_id = str(
+        result.get("detail_template_id")
+        or analysis.get("detail_template_id")
+        or config_payload.get("detail_template_id")
+        or "detail_template_01"
+    ).strip() or "detail_template_01"
+    showcase_template_id = str(
+        result.get("showcase_template_id")
+        or analysis.get("showcase_template_id")
+        or config_payload.get("showcase_template_id")
+        or getattr(mod, "DEFAULT_SHOWCASE_TEMPLATE_ID", "showcase_template_01")
+    ).strip() or getattr(mod, "DEFAULT_SHOWCASE_TEMPLATE_ID", "showcase_template_01")
+    return mod.PipelineConfig(
+        base_url="",
+        api_key="__history_edit__",
+        detail_template_id=detail_template_id,
+        showcase_template_id=showcase_template_id,
+        template_config=mod._load_detail_template_config(detail_template_id),
+        showcase_template_config=mod._load_showcase_template_config(showcase_template_id),
+        page_width=int(config_payload.get("page_width") or 790),
+        page_height=int(config_payload.get("page_height") or 1250),
+        page_gap_px=int(config_payload.get("page_gap_px") or 0),
+        page_count=int(config_payload.get("page_count") or 12),
+        showcase_count=int(config_payload.get("showcase_count") or 0),
+        analysis_model=str(config_payload.get("analysis_model") or ""),
+        image_model=str(config_payload.get("image_model") or ""),
+        aspect_ratio=str(config_payload.get("aspect_ratio") or "9:16"),
+        listing_category=str(config_payload.get("listing_category") or ""),
+        export_name_prefix=str(config_payload.get("export_name_prefix") or ""),
+        product_name_hint=str(config_payload.get("product_name_hint") or analysis.get("product_name") or ""),
+    )
+
+
+def _history_edit_job_response(*, job_id: str, result: Dict[str, Any], request: Request) -> Dict[str, Any]:
+    enriched = _enrich_result_file_urls(result, request)
+    analysis = enriched.get("analysis") if isinstance(enriched.get("analysis"), dict) else {}
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "status": "completed",
+        "source": "history_snapshot",
+        "product_name": str(analysis.get("product_name") or ""),
+        "result": enriched,
+    }
+
+
+def _collect_detail_page_paths(result: Dict[str, Any]) -> List[str]:
+    return [
+        str(item.get("local_path") or "")
+        for item in sorted(
+            [row for row in (result.get("page_results") or []) if isinstance(row, dict)],
+            key=lambda row: int(row.get("index") or 0),
+        )
+        if str(item.get("local_path") or "").strip()
+    ]
+
+
+def _refresh_detail_long_image_snapshot(
+    *,
+    result: Dict[str, Any],
+    long_image_path: str,
+    page_gap_px: int,
+    job_id: Optional[str] = None,
+) -> None:
+    try:
+        page_paths = _collect_detail_page_paths(result)
+        if not page_paths or not long_image_path:
+            return
+        mod = _load_pipeline_module()
+        result["final_long_image"] = mod._compose_long_image(page_paths, long_image_path, page_gap_px)
+        if job_id and get_job(job_id):
+            update_job(job_id, result=result)
+    except Exception:
+        logger.warning("[comfly_ecommerce_detail] async refresh long image failed job_id=%s", (job_id or "")[:12], exc_info=True)
+
+
 @router.post("/api/comfly-ecommerce-detail/local-upload")
 async def ecommerce_detail_local_upload(
     request: Request,
@@ -858,7 +1140,14 @@ def ecommerce_detail_local_file(file_token: str):
     path = _LOCAL_FILE_TOKEN_TO_PATH.get(token)
     if not path or not path.is_file():
         raise HTTPException(status_code=404, detail="文件不存在或已过期")
-    return FileResponse(str(path))
+    return FileResponse(
+        str(path),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
 
 
 @router.post("/api/comfly-ecommerce-detail/pipeline/run")
@@ -980,6 +1269,286 @@ async def ecommerce_detail_pipeline_job_status(
         "error": db_job.error,
         "created_at": db_job.created_at.isoformat() if db_job.created_at else None,
         "source": "database",
+    }
+
+
+@router.post("/api/comfly-ecommerce-detail/pipeline/rehydrate-result")
+async def ecommerce_detail_pipeline_rehydrate_result(
+    body: EcommerceResultRehydrateBody,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    await _resolve_optional_request_user(request, db)
+    sanitized = _sanitize_result_for_rehydrate(body.result)
+    return {
+        "ok": True,
+        "result": _enrich_result_file_urls(sanitized, request),
+    }
+
+
+@router.post("/api/comfly-ecommerce-detail/pipeline/jobs/{job_id}/showcase-edit")
+async def ecommerce_detail_pipeline_showcase_edit(
+    job_id: str,
+    body: EcommerceShowcaseEditBody,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    current_user = await _resolve_optional_request_user(request, db)
+    job = get_job(job_id)
+    if job:
+        job_user_id = int(job.get("user_id") or 0)
+        if job_user_id > 0 and job_user_id != int(current_user.id or 0):
+            raise HTTPException(status_code=403, detail="无权编辑该任务")
+        if str(job.get("status") or "") != "completed":
+            raise HTTPException(status_code=409, detail="任务尚未完成，暂时不能改单张文案")
+        result = deepcopy(job.get("result") or {})
+    else:
+        result = _sanitize_result_for_rehydrate(body.result)
+    if not isinstance(result, dict) or not result:
+        raise HTTPException(status_code=409, detail="当前任务缺少完整结果数据，请重新生成后再试")
+    payload = body.payload
+    item = _find_suite_category_item(result, "showcase_images", payload.page_index)
+    if not item:
+        raise HTTPException(status_code=404, detail=f"未找到 page_index={payload.page_index} 的橱窗图")
+    target_path = Path(str(item.get("path") or "")).resolve()
+    if not target_path.is_file():
+        raise HTTPException(status_code=404, detail="目标橱窗图文件不存在，请重新生成后再试")
+
+    mod = _load_pipeline_module()
+    source_pool, _ = _build_showcase_source_pool_from_result(result)
+    analysis = result.get("analysis") if isinstance(result.get("analysis"), dict) else {}
+    showcase_meta = result.get("suite_bundle") if isinstance(result.get("suite_bundle"), dict) else {}
+    showcase_template = showcase_meta.get("showcase_template") if isinstance(showcase_meta.get("showcase_template"), dict) else {}
+    template_id = str(showcase_template.get("template_id") or analysis.get("showcase_template_id") or "").strip()
+    template_config = mod._load_showcase_template_config(template_id) if template_id else {}
+    theme_override = dict(template_config.get("theme") or {}) if isinstance(template_config, dict) else {}
+    template_variant = int(item.get("template_variant") or ((payload.page_index - 1) % 4))
+
+    def _next_text(raw: Optional[str], current: str) -> str:
+        return current if raw is None else str(raw).strip()
+
+    record = {
+        "title": _next_text(payload.title, str(item.get("title") or "")),
+        "subtitle": _next_text(payload.subtitle, str(item.get("subtitle") or "")),
+        "hero_claim": _next_text(payload.hero_claim, str(item.get("hero_claim") or "")),
+        "summary": _next_text(payload.summary, str(item.get("summary") or "")),
+        "corner": _next_text(payload.corner, str(item.get("corner") or "")),
+    }
+    if not record["title"]:
+        raise HTTPException(status_code=400, detail="标题不能为空")
+
+    rendered = mod._render_showcase_card(
+        index=max(0, int(payload.page_index) - 1),
+        record=record,
+        source_pool=source_pool,
+        analysis=analysis,
+        template_variant=template_variant,
+        theme_override=theme_override,
+        width=1440,
+        height=1920,
+    )
+    exported = mod._save_cover_jpeg(rendered, target_path, 1440, 1920)
+    item.update(exported)
+    item["page_index"] = int(payload.page_index)
+    item["slot"] = "showcase_card"
+    item["kind"] = "showcase_image"
+    item["source"] = "local_showcase_layout"
+    item["title"] = record["title"]
+    item["subtitle"] = record["subtitle"]
+    item["hero_claim"] = record["hero_claim"]
+    item["summary"] = record["summary"]
+    item["corner"] = record["corner"]
+    item["template_variant"] = template_variant
+
+    if job:
+        update_job(job_id, result=result)
+        response = _job_status_response(get_job(job_id) or job, include_full=True, request=request)
+    else:
+        response = _history_edit_job_response(job_id=job_id, result=result, request=request)
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "page_index": int(payload.page_index),
+        "item": {
+            **item,
+            "preview_url": _register_local_file_url(request, str(target_path)),
+            "open_url": _register_local_file_url(request, str(target_path)),
+        },
+        "job": response,
+    }
+
+
+@router.post("/api/comfly-ecommerce-detail/pipeline/jobs/{job_id}/detail-edit")
+async def ecommerce_detail_pipeline_detail_edit(
+    job_id: str,
+    body: EcommerceDetailEditBody,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    current_user = await _resolve_optional_request_user(request, db)
+    job = get_job(job_id)
+    if job:
+        job_user_id = int(job.get("user_id") or 0)
+        if job_user_id > 0 and job_user_id != int(current_user.id or 0):
+            raise HTTPException(status_code=403, detail="无权编辑该任务")
+        if str(job.get("status") or "") != "completed":
+            raise HTTPException(status_code=409, detail="任务尚未完成，暂时不能改单张文案")
+        result = deepcopy(job.get("result") or {})
+    else:
+        result = _sanitize_result_for_rehydrate(body.result)
+    if not isinstance(result, dict) or not result:
+        raise HTTPException(status_code=409, detail="当前任务缺少完整结果数据，请重新生成后再试")
+    payload = body.payload
+    suite_item = _find_suite_category_item(result, "detail_images", payload.page_index)
+    page_copy = _find_page_copy_entry(result, payload.page_index)
+    page_result = _find_page_result_entry(result, payload.page_index)
+    if not suite_item or not page_copy or not page_result:
+        raise HTTPException(status_code=404, detail=f"未找到 page_index={payload.page_index} 的详情图")
+
+    mod = _load_pipeline_module()
+    inp = dict(job.get("inp") or {}) if job else {}
+    try:
+        config = mod._build_config(inp) if inp else _detail_render_config_from_result(mod, result)
+    except Exception as exc:
+        raise HTTPException(status_code=409, detail=f"无法恢复详情图配置：{exc}") from exc
+
+    title = str(payload.title if payload.title is not None else page_copy.get("title") or "").strip()
+    subtitle = str(payload.subtitle if payload.subtitle is not None else page_copy.get("subtitle") or "").strip()
+    footer = str(payload.footer if payload.footer is not None else page_copy.get("footer") or "").strip()
+    highlights = [str(item or "").strip() for item in (payload.highlights or list(page_copy.get("highlights") or [])) if str(item or "").strip()]
+    highlights = highlights[:6]
+    if not title:
+        raise HTTPException(status_code=400, detail="标题不能为空")
+
+    page_copy["title"] = title
+    page_copy["subtitle"] = subtitle
+    page_copy["footer"] = footer
+    page_copy["highlights"] = highlights
+
+    background = None
+    product_local = None
+    background_local_path = str(page_result.get("background_local_path") or "").strip()
+    generation_mode = str(page_result.get("generation_mode") or "").strip().lower()
+    if background_local_path:
+        try:
+            bg_path = Path(background_local_path).resolve()
+            if bg_path.is_file():
+                background = mod._open_local_image(str(bg_path))
+        except Exception:
+            logger.warning("[comfly_ecommerce_detail] open local detail background failed job_id=%s", job_id[:12], exc_info=True)
+    if background is None:
+        background_url = str(page_result.get("generated_image_url") or "").strip()
+        if background_url:
+            try:
+                background = mod._download_image(background_url)
+            except Exception:
+                logger.warning(
+                    "[comfly_ecommerce_detail] remote detail background expired or unavailable, original-bg edit unavailable job_id=%s",
+                    job_id[:12],
+                    exc_info=True,
+                )
+    if background is None:
+        if generation_mode == "local_fallback":
+            product_image = str(inp.get("product_image") or result.get("product_image_url") or "").strip()
+            if not product_image:
+                raise HTTPException(status_code=409, detail="当前任务缺少商品主图源素材，请重新生成后再试")
+            try:
+                product_local = mod._download_image(product_image)
+            except Exception as exc:
+                raise HTTPException(status_code=409, detail=f"无法恢复商品主图：{exc}") from exc
+            try:
+                background = mod._make_local_fallback_background(product_local.copy(), page_copy, config)
+            except Exception as exc:
+                raise HTTPException(status_code=409, detail=f"??????????{exc}") from exc
+        if background is None:
+            raise HTTPException(
+                status_code=409,
+                detail="????????????????????????????????????????????????????????????????",
+            )
+
+    metadata = page_copy.get("metadata") if isinstance(page_copy.get("metadata"), dict) else {}
+    used_icon_ids: List[str] = []
+    icon_id = str(metadata.get("icon") or "").strip()
+    if icon_id:
+        used_icon_ids.append(icon_id)
+    try:
+        icon_images = mod._load_icon_images(inp.get("icon_assets"), used_icon_ids)
+    except Exception:
+        icon_images = {}
+
+    # When we already have the original page background locally, avoid re-downloading
+    # the product image on every text edit. The current detail renderer only needs the
+    # background to preserve layout and composition.
+    render_product_source = product_local.copy() if product_local is not None else background.copy()
+    rendered = mod._render_page(render_product_source, background, page_copy, config, icon_images=icon_images)
+
+    page_local_path = Path(str(page_result.get("local_path") or "")).resolve()
+    suite_path = Path(str(suite_item.get("path") or "")).resolve()
+    if not page_local_path.parent.exists():
+        page_local_path.parent.mkdir(parents=True, exist_ok=True)
+    if not suite_path.parent.exists():
+        suite_path.parent.mkdir(parents=True, exist_ok=True)
+    if not background_local_path:
+        background_local_path = str(page_local_path.with_name(f"背景_{int(payload.page_index):02d}.jpg"))
+    try:
+        Path(background_local_path).parent.mkdir(parents=True, exist_ok=True)
+        background.convert("RGB").save(background_local_path, format="JPEG", quality=92, subsampling=0)
+    except Exception:
+        logger.warning("[comfly_ecommerce_detail] persist detail background failed job_id=%s", job_id[:12], exc_info=True)
+    rendered.save(page_local_path, format="JPEG", quality=92, subsampling=0)
+    rendered.save(suite_path, format="JPEG", quality=92, subsampling=0)
+
+    page_result["title"] = title
+    page_result["subtitle"] = subtitle
+    page_result["footer"] = footer
+    page_result["highlights"] = highlights
+    page_result["width"] = rendered.width
+    page_result["height"] = rendered.height
+    page_result["filename"] = page_local_path.name
+    page_result["local_path"] = str(page_local_path)
+    page_result["relative_path"] = str(page_result.get("relative_path") or "")
+    page_result["background_local_path"] = str(background_local_path or "")
+
+    suite_item["title"] = title
+    suite_item["subtitle"] = subtitle
+    suite_item["footer"] = footer
+    suite_item["highlights"] = highlights
+    suite_item["width"] = rendered.width
+    suite_item["height"] = rendered.height
+    suite_item["filename"] = suite_path.name
+    suite_item["path"] = str(suite_path)
+
+    long_image = result.get("final_long_image") if isinstance(result.get("final_long_image"), dict) else {}
+    long_image_path = str(long_image.get("path") or "").strip()
+    long_image_refresh_pending = False
+    page_gap_px = int((result.get("config") or {}).get("page_gap_px") or 0)
+    if long_image_path and _collect_detail_page_paths(result):
+        long_image_refresh_pending = True
+        background_tasks.add_task(
+            _refresh_detail_long_image_snapshot,
+            result=deepcopy(result),
+            long_image_path=long_image_path,
+            page_gap_px=page_gap_px,
+            job_id=job_id if job else None,
+        )
+
+    if job:
+        update_job(job_id, result=result)
+        response = _job_status_response(get_job(job_id) or job, include_full=True, request=request)
+    else:
+        response = _history_edit_job_response(job_id=job_id, result=result, request=request)
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "page_index": int(payload.page_index),
+        "item": {
+            **suite_item,
+            "preview_url": _register_local_file_url(request, str(suite_path)),
+            "open_url": _register_local_file_url(request, str(suite_path)),
+        },
+        "long_image_refresh_pending": long_image_refresh_pending,
+        "job": response,
     }
 
 

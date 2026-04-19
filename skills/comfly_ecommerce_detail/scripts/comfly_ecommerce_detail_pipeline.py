@@ -97,6 +97,8 @@ class PipelineConfig:
     showcase_template_config: Dict[str, Any] | None = None
     product_name_hint: str = ""
     product_direction_hint: str = ""
+    listing_category: str = ""
+    export_name_prefix: str = ""
     platform: str = "ecommerce"
     country: str = ""
     language: str = "zh-CN"
@@ -105,6 +107,7 @@ class PipelineConfig:
     image_model: str = "nano-banana-2"
     aspect_ratio: str = "9:16"
     page_count: int = 12
+    showcase_count: int = 0
     page_width: int = 790
     page_height: int = 1250
     page_gap_px: int = 0
@@ -591,6 +594,18 @@ def _dedupe_strings(items: List[str]) -> List[str]:
 
 
 def _normalize_selling_point_records(value: Any) -> List[Dict[str, Any]]:
+    def _split_title_segments(text: str) -> List[str]:
+        normalized = _sanitize_copy_text(text)
+        if not normalized:
+            return []
+        normalized = re.sub(r"(?:^|\s)(\d{1,2}[\.、\)])\s*", "\n", normalized)
+        parts = [part.strip(" -*•·") for part in re.split(r"[\n；;]+", normalized) if part.strip(" -*•·")]
+        if len(parts) <= 1 and "、" in normalized:
+            compact = [part.strip() for part in normalized.split("、") if part.strip()]
+            if len(compact) > 1 and all(len(part) <= 16 for part in compact):
+                parts = compact
+        return parts or [normalized]
+
     rows: List[Dict[str, Any]] = []
     for raw in _safe_dict_list(value):
         title = _sanitize_copy_text(raw.get("title") or raw.get("name") or raw.get("headline") or "")
@@ -606,14 +621,16 @@ def _normalize_selling_point_records(value: Any) -> List[Dict[str, Any]]:
             priority = None
         if not title and not description:
             continue
-        rows.append(
-            {
-                "title": title or description[:16] or "卖点",
-                "description": description,
-                "icon": icon,
-                "priority": priority,
-            }
-        )
+        title_segments = _split_title_segments(title) if title and not description else [title]
+        for seg_idx, segment in enumerate(title_segments):
+            rows.append(
+                {
+                    "title": segment or description[:16] or "卖点",
+                    "description": description if seg_idx == 0 else "",
+                    "icon": icon,
+                    "priority": priority if seg_idx == 0 else (priority + seg_idx if isinstance(priority, int) else None),
+                }
+            )
     rows.sort(key=lambda item: item.get("priority") if isinstance(item.get("priority"), int) else 9999)
     return rows
 
@@ -878,6 +895,8 @@ def _showcase_target_count(analysis: Dict[str, Any], detail_page_count: int, con
     count_source = str(template.get("count_source") or "selling_points").strip().lower()
     min_count = max(1, int(template.get("min_count") or 4))
     max_count = max(min_count, int(template.get("max_count") or 6))
+    if int(config.showcase_count or 0) > 0:
+        return max(1, min(20, int(config.showcase_count)))
     if count_source == "detail_pages":
         base_count = detail_page_count
     else:
@@ -1060,6 +1079,7 @@ def _build_config(data: Input) -> PipelineConfig:
     if not api_key:
         raise PipelineError("Missing apikey")
     page_count = max(10, min(16, int(data.get("page_count", 12))))
+    showcase_count = max(0, min(20, int(data.get("showcase_count", 0) or 0)))
     selling_points = _normalize_selling_point_records(data.get("selling_points"))
     specs = _normalize_specs(data.get("specs"))
     scene_preferences = _safe_dict(data.get("scene_preferences"))
@@ -1088,6 +1108,8 @@ def _build_config(data: Input) -> PipelineConfig:
         showcase_template_config=_load_showcase_template_config(showcase_template_id),
         product_name_hint=str(data.get("product_name_hint", "")).strip(),
         product_direction_hint=str(data.get("product_direction_hint", "")).strip(),
+        listing_category=str(data.get("listing_category", "")).strip(),
+        export_name_prefix=str(data.get("export_name_prefix", "")).strip(),
         platform=str(data.get("platform", "ecommerce")).strip(),
         country=str(data.get("country", "")).strip(),
         language=str(data.get("language", "zh-CN")).strip(),
@@ -1096,6 +1118,7 @@ def _build_config(data: Input) -> PipelineConfig:
         image_model=str(data.get("image_model", "nano-banana-2")).strip(),
         aspect_ratio=str(data.get("aspect_ratio", "9:16")).strip(),
         page_count=page_count,
+        showcase_count=showcase_count,
         page_width=int(data.get("page_width", 790)),
         page_height=int(data.get("page_height", 1250)),
         page_gap_px=int(data.get("page_gap_px", 0)),
@@ -1115,6 +1138,8 @@ def _analysis_prompt(config: PipelineConfig) -> str:
         user_hint_lines.append(f"User-supplied product name/title: {config.product_name_hint}")
     if config.product_direction_hint:
         user_hint_lines.append(f"User-supplied product direction/category: {config.product_direction_hint}")
+    if config.listing_category:
+        user_hint_lines.append(f"User-supplied listing category: {config.listing_category}")
     structured_inputs: Dict[str, Any] = {}
     if config.sku:
         structured_inputs["sku"] = config.sku
@@ -1134,6 +1159,10 @@ def _analysis_prompt(config: PipelineConfig) -> str:
         structured_inputs["detail_template_id"] = config.detail_template_id
     if config.showcase_template_id:
         structured_inputs["showcase_template_id"] = config.showcase_template_id
+    if config.listing_category:
+        structured_inputs["listing_category"] = config.listing_category
+    if config.showcase_count > 0:
+        structured_inputs["showcase_count"] = config.showcase_count
     if config.brand:
         structured_inputs["brand"] = config.brand
     if config.compliance_notes:
@@ -1257,6 +1286,10 @@ def _merge_structured_inputs_into_analysis(analysis: Dict[str, Any], config: Pip
         result["compliance_notes"] = config.compliance_notes
     if config.sku:
         result["sku"] = config.sku
+    if config.listing_category:
+        result["listing_category"] = config.listing_category
+    if config.export_name_prefix:
+        result["export_name_prefix"] = config.export_name_prefix
     return result
 
 
@@ -1264,20 +1297,26 @@ def _apply_user_hints_to_analysis(analysis: Dict[str, Any], config: PipelineConf
     result = dict(analysis)
     name_hint = str(config.product_name_hint or "").strip()
     direction_hint = str(config.product_direction_hint or "").strip()
+    listing_category = str(config.listing_category or "").strip()
     if name_hint:
         result["product_name"] = name_hint
-    if direction_hint:
+    category_hint = listing_category or direction_hint
+    if category_hint:
         category = str(result.get("category") or "").strip()
         if category:
-            if direction_hint.lower() not in category.lower():
-                result["category"] = f"{direction_hint}, {category}"
+            if category_hint.lower() not in category.lower():
+                result["category"] = f"{category_hint}, {category}"
         else:
-            result["category"] = direction_hint
+            result["category"] = category_hint
+    if listing_category:
+        result["listing_category"] = listing_category
     user_hints: Dict[str, str] = {}
     if name_hint:
         user_hints["product_name_hint"] = name_hint
     if direction_hint:
         user_hints["product_direction_hint"] = direction_hint
+    if listing_category:
+        user_hints["listing_category"] = listing_category
     if user_hints:
         result["user_hints"] = user_hints
     return result
@@ -2701,9 +2740,11 @@ def _export_suite_bundle(
         ),
         "summary": {
             "product_name": str(analysis.get("product_name") or ""),
+            "listing_category": str(analysis.get("listing_category") or config.listing_category or ""),
             "hero_claim": str(analysis.get("hero_claim") or ""),
             "sku": config.sku,
             "style_id": str(analysis.get("style_id") or ""),
+            "export_name_prefix": config.export_name_prefix,
         },
         "warnings": warnings,
     }
@@ -3280,6 +3321,7 @@ def _export_suite_bundle(
         + _safe_string_list(main_payload.get("warnings"))
         + _safe_string_list(sku_payload.get("warnings"))
     )
+    name_prefix = _export_prefix(config, analysis)
 
     cover_rgba = _open_local_image(str(cover_page["local_path"]))
     overview_rgba = _open_local_image(str(overview_page["local_path"]))
@@ -3298,6 +3340,7 @@ def _export_suite_bundle(
         sku_scene_image=sku_scene_image,
         white_bg_image=white_bg_image,
     )
+    name_prefix = _export_prefix(config, analysis)
 
     if _target_enabled(config.output_targets, "main_images"):
         suite_categories["main_images"].append(
@@ -3529,6 +3572,8 @@ def run_pipeline(data: Input) -> Dict[str, Any]:
                         payload={"attempts": attempts, "page_attempt": page_attempt, "phase": phase},
                     )
                     background_image = _download_image(generated["url"], retries=5, timeout=180)
+                    background_local_path = logger.detail_dir / f"背景_{idx:02d}.jpg"
+                    background_image.save(background_local_path, format="JPEG", quality=92, subsampling=0)
                     rendered = _render_page(product_local.copy(), background_image, page, config, icon_images=icon_images)
                     local_path = logger.detail_dir / f"详情_{idx:02d}.jpg"
                     rendered.save(local_path, format="JPEG", quality=92, subsampling=0)
@@ -3545,6 +3590,8 @@ def run_pipeline(data: Input) -> Dict[str, Any]:
                         "relative_path": str(local_path.relative_to(logger.run_dir)),
                         "generated_image_url": generated["url"],
                         "generated_image_prompt": image_prompt,
+                        "background_local_path": str(background_local_path),
+                        "background_relative_path": str(background_local_path.relative_to(logger.run_dir)),
                         "generation_mode": "remote",
                         "local_path": str(local_path),
                         "attempts": attempts,
@@ -3558,6 +3605,8 @@ def run_pipeline(data: Input) -> Dict[str, Any]:
 
             if allow_local_fallback and last_page_error is not None and _is_retriable_generation_error(last_page_error):
                 fallback_background = _make_local_fallback_background(product_local.copy(), page, config)
+                background_local_path = logger.detail_dir / f"背景_{idx:02d}.jpg"
+                fallback_background.save(background_local_path, format="JPEG", quality=92, subsampling=0)
                 rendered = _render_page(product_local.copy(), fallback_background, page, config, icon_images=icon_images)
                 local_path = logger.detail_dir / f"详情_{idx:02d}.jpg"
                 rendered.save(local_path, format="JPEG", quality=92, subsampling=0)
@@ -3574,6 +3623,8 @@ def run_pipeline(data: Input) -> Dict[str, Any]:
                     "relative_path": str(local_path.relative_to(logger.run_dir)),
                     "generated_image_url": None,
                     "generated_image_prompt": image_prompt,
+                    "background_local_path": str(background_local_path),
+                    "background_relative_path": str(background_local_path.relative_to(logger.run_dir)),
                     "generation_mode": "local_fallback",
                     "fallback_reason": str(last_page_error),
                     "local_path": str(local_path),
@@ -3878,11 +3929,15 @@ def run_pipeline(data: Input) -> Dict[str, Any]:
                 "image_model": config.image_model,
                 "aspect_ratio": config.aspect_ratio,
                 "page_count": config.page_count,
+                "showcase_count": config.showcase_count,
                 "total_page_count": len(pages),
                 "page_width": config.page_width,
                 "page_height": config.page_height,
                 "page_gap_px": config.page_gap_px,
                 "image_concurrency": config.image_concurrency,
+                "listing_category": config.listing_category,
+                "export_name_prefix": config.export_name_prefix,
+                "product_name_hint": config.product_name_hint,
             },
         }
         logger.finish("success", output)
@@ -4751,6 +4806,32 @@ def _render_showcase_card(
     return canvas.convert("RGB")
 
 
+def _sanitize_export_prefix(value: Any) -> str:
+    text = re.sub(r"[<>:\"/\\\\|?*]+", " ", str(value or "").strip())
+    text = re.sub(r"\s+", "_", text).strip(" _.")
+    return text[:48]
+
+
+def _export_prefix(config: PipelineConfig, analysis: Dict[str, Any]) -> str:
+    return _sanitize_export_prefix(
+        config.export_name_prefix
+        or analysis.get("export_name_prefix")
+        or analysis.get("product_name")
+        or config.product_name_hint
+        or ""
+    )
+
+
+def _prefixed_export_name(prefix: str, filename: str) -> str:
+    base = str(filename or "").strip()
+    clean_prefix = _sanitize_export_prefix(prefix)
+    if not clean_prefix:
+        return base
+    if base.startswith(clean_prefix + "_"):
+        return base
+    return f"{clean_prefix}_{base}"
+
+
 def _export_suite_bundle(
     *,
     run_dir: Path,
@@ -4803,6 +4884,7 @@ def _export_suite_bundle(
         + _safe_string_list(main_payload.get("warnings"))
         + _safe_string_list(sku_payload.get("warnings"))
     )
+    name_prefix = _export_prefix(config, analysis)
 
     cover_rgba = _open_local_image(str(cover_page["local_path"]))
     overview_rgba = _open_local_image(str(overview_page["local_path"]))
@@ -5033,6 +5115,7 @@ def _export_suite_bundle(
         + _safe_string_list(main_payload.get("warnings"))
         + _safe_string_list(sku_payload.get("warnings"))
     )
+    name_prefix = _export_prefix(config, analysis)
 
     cover_rgba = _open_local_image(str(cover_page["local_path"]))
     overview_rgba = _open_local_image(str(overview_page["local_path"]))
@@ -5068,7 +5151,7 @@ def _export_suite_bundle(
                 shot_index = int(shot.get("index") or len(suite_categories["main_images"]) + 1)
                 if not isinstance(square_image, Image.Image) or not isinstance(portrait_image, Image.Image):
                     raise PipelineError(f"Main image shot {shot_index} is missing square or portrait master output")
-                square_export = _save_cover_jpeg(square_image, category_dirs["main_images"] / f"{shot_index}-1440X1440.jpg", 1440, 1440)
+                square_export = _save_cover_jpeg(square_image, category_dirs["main_images"] / _prefixed_export_name(name_prefix, f"{shot_index}-1440X1440.jpg"), 1440, 1440)
                 square_export["kind"] = "main_image_square"
                 square_export["source"] = "generated_main_image"
                 square_export["shot_index"] = shot_index
@@ -5078,7 +5161,7 @@ def _export_suite_bundle(
                 square_export["prompt"] = str(shot.get("prompt") or "")
                 suite_categories["main_images"].append(square_export)
 
-                portrait_export = _save_cover_jpeg(portrait_image, category_dirs["main_images"] / f"{shot_index}-1440X1920.jpg", 1440, 1920)
+                portrait_export = _save_cover_jpeg(portrait_image, category_dirs["main_images"] / _prefixed_export_name(name_prefix, f"{shot_index}-1440X1920.jpg"), 1440, 1920)
                 portrait_export["kind"] = "main_image_portrait"
                 portrait_export["source"] = "generated_main_image"
                 portrait_export["shot_index"] = shot_index
@@ -5092,14 +5175,14 @@ def _export_suite_bundle(
                 raise PipelineError("Main image target is enabled, but the 1:1 main-image master is missing")
             if not isinstance(main_portrait_image, Image.Image):
                 raise PipelineError("Main image target is enabled, but the 3:4 main-image master is missing")
-            square_export = _save_cover_jpeg(main_square_image, category_dirs["main_images"] / "1-1440X1440.jpg", 1440, 1440)
+            square_export = _save_cover_jpeg(main_square_image, category_dirs["main_images"] / _prefixed_export_name(name_prefix, "1-1440X1440.jpg"), 1440, 1440)
             square_export["kind"] = "main_image_square"
             square_export["source"] = "generated_main_image"
             square_export["generated_image_url"] = str((main_square or {}).get("generated_image_url") or "")
             square_export["prompt"] = str((main_square or {}).get("prompt") or "")
             suite_categories["main_images"].append(square_export)
 
-            portrait_export = _save_cover_jpeg(main_portrait_image, category_dirs["main_images"] / "1-1440X1920.jpg", 1440, 1920)
+            portrait_export = _save_cover_jpeg(main_portrait_image, category_dirs["main_images"] / _prefixed_export_name(name_prefix, "1-1440X1920.jpg"), 1440, 1920)
             portrait_export["kind"] = "main_image_portrait"
             portrait_export["source"] = "generated_main_image"
             portrait_export["generated_image_url"] = str((main_portrait or {}).get("generated_image_url") or "")
@@ -5118,7 +5201,7 @@ def _export_suite_bundle(
                     if str(item.get("mode") or "") == "scene"
                     else f"SKU带版式-{item_index:02d}.jpg"
                 )
-                exported = _save_cover_jpeg(master_image, category_dirs["sku_images"] / filename, 1440, 1440)
+                exported = _save_cover_jpeg(master_image, category_dirs["sku_images"] / _prefixed_export_name(name_prefix, filename), 1440, 1440)
                 exported["kind"] = "sku_scene" if str(item.get("mode") or "") == "scene" else "sku_layout"
                 exported["source"] = "generated_sku_image" if str(item.get("mode") or "") == "scene" else "local_composed_sku_layout"
                 exported["shot_index"] = item_index
@@ -5132,14 +5215,14 @@ def _export_suite_bundle(
                 raise PipelineError("SKU image target is enabled, but the SKU scene master is missing")
             if not isinstance(sku_layout_image, Image.Image):
                 raise PipelineError("SKU image target is enabled, but the SKU layout master is missing")
-            scene_export = _save_cover_jpeg(sku_scene_image, category_dirs["sku_images"] / "SKU场景.jpg", 1440, 1440)
+            scene_export = _save_cover_jpeg(sku_scene_image, category_dirs["sku_images"] / _prefixed_export_name(name_prefix, "SKU场景.jpg"), 1440, 1440)
             scene_export["kind"] = "sku_scene"
             scene_export["source"] = "generated_sku_image"
             scene_export["generated_image_url"] = str(sku_scene.get("generated_image_url") or "")
             scene_export["prompt"] = str(sku_scene.get("prompt") or "")
             suite_categories["sku_images"].append(scene_export)
 
-            layout_export = _save_cover_jpeg(sku_layout_image, category_dirs["sku_images"] / "SKU带版式.jpg", 1440, 1440)
+            layout_export = _save_cover_jpeg(sku_layout_image, category_dirs["sku_images"] / _prefixed_export_name(name_prefix, "SKU带版式.jpg"), 1440, 1440)
             layout_export["kind"] = "sku_layout"
             layout_export["source"] = "generated_sku_image"
             layout_export["generated_image_url"] = str(sku_layout.get("generated_image_url") or "")
@@ -5149,7 +5232,7 @@ def _export_suite_bundle(
     if _target_enabled(config.output_targets, "white_bg_image"):
         if not isinstance(white_bg_image, Image.Image):
             raise PipelineError("White-background image target is enabled, but generated white-background output is missing")
-        white_bg = _save_cover_jpeg(white_bg_image, category_dirs["transparent_white_bg"] / "1-白底.jpg", 800, 800)
+        white_bg = _save_cover_jpeg(white_bg_image, category_dirs["transparent_white_bg"] / _prefixed_export_name(name_prefix, "1-白底.jpg"), 800, 800)
         white_bg["kind"] = "white_bg_image"
         white_bg["generation_mode"] = str(payload.get("generation_mode") or "remote")
         white_bg["generated_image_url"] = str(payload.get("generated_image_url") or "")
@@ -5161,7 +5244,7 @@ def _export_suite_bundle(
             raise PipelineError("Transparent image target is enabled, but the transparent asset derived from the generated white-background image is missing")
         if not _image_has_real_transparency(transparent_image):
             raise PipelineError("Transparent image target is enabled, but the derived transparent asset does not contain a usable alpha channel")
-        transparent_path = category_dirs["transparent_white_bg"] / "1-透明.png"
+        transparent_path = category_dirs["transparent_white_bg"] / _prefixed_export_name(name_prefix, "1-透明.png")
         transparent_path.parent.mkdir(parents=True, exist_ok=True)
         transparent_image.convert("RGBA").save(transparent_path, format="PNG")
         transparent = {
@@ -5177,7 +5260,7 @@ def _export_suite_bundle(
     if _target_enabled(config.output_targets, "detail_pages"):
         for idx, page in enumerate(sorted_pages, start=1):
             source = _open_local_image(str(page["local_path"]))
-            exported = _save_cover_jpeg(source, category_dirs["detail_images"] / f"详情_{idx:02d}.jpg", source.width, source.height)
+            exported = _save_cover_jpeg(source, category_dirs["detail_images"] / _prefixed_export_name(name_prefix, f"详情_{idx:02d}.jpg"), source.width, source.height)
             exported["page_index"] = int(page.get("index") or idx)
             exported["slot"] = str(page.get("slot") or "")
             suite_categories["detail_images"].append(exported)
@@ -5192,7 +5275,7 @@ def _export_suite_bundle(
             else ("generated_sku_image" if isinstance(sku_scene_image, Image.Image) else "detail_page")
         )
         for width, height in ((513, 750), (800, 1200), (900, 1200)):
-            exported = _save_cover_jpeg(material_source, category_dirs["material_images"] / f"{width}X{height}.jpg", width, height)
+            exported = _save_cover_jpeg(material_source, category_dirs["material_images"] / _prefixed_export_name(name_prefix, f"{width}X{height}.jpg"), width, height)
             exported["kind"] = "material_image"
             exported["source"] = material_source_kind
             suite_categories["material_images"].append(exported)
@@ -5213,12 +5296,16 @@ def _export_suite_bundle(
                 width=1440,
                 height=1920,
             )
-            exported = _save_cover_jpeg(rendered, category_dirs["showcase_images"] / f"橱窗-{idx}.jpg", 1440, 1920)
+            exported = _save_cover_jpeg(rendered, category_dirs["showcase_images"] / _prefixed_export_name(name_prefix, f"橱窗-{idx}.jpg"), 1440, 1920)
             exported["page_index"] = idx
             exported["slot"] = "showcase_card"
             exported["kind"] = "showcase_image"
             exported["source"] = "local_showcase_layout"
             exported["title"] = record.get("title") or ""
+            exported["subtitle"] = record.get("subtitle") or ""
+            exported["hero_claim"] = record.get("hero_claim") or ""
+            exported["summary"] = record.get("summary") or ""
+            exported["corner"] = record.get("corner") or ""
             exported["showcase_template_id"] = config.showcase_template_id
             exported["template_variant"] = showcase_sequence[(idx - 1) % len(showcase_sequence)]
             suite_categories["showcase_images"].append(exported)

@@ -118,6 +118,9 @@ def build_pipeline_input(
     output_targets: Optional[Dict[str, object]],
     detail_template_id: Optional[str],
     showcase_template_id: Optional[str],
+    listing_category: Optional[str],
+    export_name_prefix: Optional[str],
+    showcase_count: Optional[int],
     brand: Optional[str],
     compliance_notes: Optional[List[str]],
     api_key: str,
@@ -161,6 +164,12 @@ def build_pipeline_input(
         inp["detail_template_id"] = detail_template_id.strip()
     if (showcase_template_id or "").strip():
         inp["showcase_template_id"] = showcase_template_id.strip()
+    if (listing_category or "").strip():
+        inp["listing_category"] = listing_category.strip()
+    if (export_name_prefix or "").strip():
+        inp["export_name_prefix"] = export_name_prefix.strip()
+    if showcase_count is not None:
+        inp["showcase_count"] = int(showcase_count)
     if (brand or "").strip():
         inp["brand"] = brand.strip()
     if compliance_notes:
