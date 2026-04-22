@@ -909,6 +909,9 @@
                 <button type="button" id="metaSocialConnectBtn" class="btn btn-primary btn-sm">授权连接</button>
                 <button type="button" id="metaOpenProxyBrowserBtn" class="btn btn-ghost btn-sm" style="margin-left:0.5rem;">打开代理浏览器</button>
                 <button type="button" id="metaTestProxyBtn" class="btn btn-ghost btn-sm" style="margin-left:0.5rem;">测试代理</button>
+                <button type="button" id="metaPreflightFbBtn" class="btn btn-ghost btn-sm" style="margin-left:0.5rem;">检测 FB 可达</button>
+                <button type="button" id="metaCloseBrowserBtn" class="btn btn-ghost btn-sm" style="margin-left:0.5rem;">关闭授权浏览器</button>
+                <button type="button" id="metaResetProfileBtn" class="btn btn-ghost btn-sm" style="margin-left:0.5rem;color:#fb7185;">重置授权 Profile</button>
               </div>
 
               <div id="metaSocialPageMsg" class="msg" style="display:none;margin-bottom:0.75rem;"></div>
@@ -1651,6 +1654,148 @@
             </div>
           </div>
 
+          <div id="content-tikhub-explorer" class="content-block">
+            <div class="card">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
+                <div>
+                  <h3 style="margin:0;">TikHub 多平台数据</h3>
+                  <p style="font-size:0.78rem;color:var(--text-muted);margin:0.4rem 0 0;line-height:1.55;">选平台 → 选接口 → 填参数 → 查询。所有调用通过云端代理转发，按次扣积分（默认 1 积分/次，由管理员调整）。<span id="tikhubBalanceTip" style="margin-left:0.5rem;color:var(--accent);"></span></p>
+                </div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                  <button type="button" id="tikhubBackBtn" class="btn btn-ghost btn-sm">← 返回技能商店</button>
+                  <button type="button" id="tikhubReloadCatalogBtn" class="btn btn-ghost btn-sm">刷新目录</button>
+                </div>
+              </div>
+
+              <div class="section-divider"></div>
+
+              <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-end;">
+                <div style="flex:0 0 11rem;">
+                  <label style="font-size:0.78rem;color:var(--text-muted);">平台</label>
+                  <select id="tikhubPlatformSel" style="width:100%;padding:0.45rem;font-size:0.88rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);"></select>
+                </div>
+                <div style="flex:0 0 11rem;">
+                  <label style="font-size:0.78rem;color:var(--text-muted);">分组</label>
+                  <select id="tikhubGroupSel" style="width:100%;padding:0.45rem;font-size:0.88rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);"></select>
+                </div>
+                <div style="flex:1 1 22rem;min-width:18rem;">
+                  <label style="font-size:0.78rem;color:var(--text-muted);">接口（共 <span id="tikhubEndpointCount">0</span> 个，可输入关键词过滤）</label>
+                  <input type="text" id="tikhubEndpointSearch" placeholder="搜索关键词，例如 话题 / user / 评论" style="width:100%;padding:0.45rem;font-size:0.88rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);margin-bottom:0.3rem;">
+                  <select id="tikhubEndpointSel" size="6" style="width:100%;padding:0.4rem;font-size:0.85rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);"></select>
+                </div>
+              </div>
+
+              <div id="tikhubEndpointMeta" style="margin-top:0.75rem;font-size:0.8rem;color:var(--text-muted);"></div>
+
+              <form id="tikhubParamForm" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0.6rem;margin-top:0.75rem;"></form>
+
+              <div style="margin-top:1rem;display:flex;flex-wrap:wrap;gap:0.5rem;">
+                <button type="button" id="tikhubRunBtn" class="btn btn-primary btn-sm">查询</button>
+                <button type="button" id="tikhubPrevBtn" class="btn btn-ghost btn-sm" disabled>← 上一页</button>
+                <button type="button" id="tikhubNextBtn" class="btn btn-ghost btn-sm" disabled>下一页 →</button>
+                <button type="button" id="tikhubCopyCurlBtn" class="btn btn-ghost btn-sm">复制 cURL</button>
+                <button type="button" id="tikhubExportBtn" class="btn btn-ghost btn-sm">导出 CSV</button>
+                <span id="tikhubRunMsg" style="font-size:0.8rem;color:var(--text-muted);align-self:center;"></span>
+              </div>
+
+              <div class="section-divider"></div>
+
+              <div style="display:flex;gap:0.4rem;margin-bottom:0.5rem;">
+                <button type="button" class="btn btn-ghost btn-sm tikhub-result-tab active" data-tab="table">表格</button>
+                <button type="button" class="btn btn-ghost btn-sm tikhub-result-tab" data-tab="json">JSON</button>
+                <button type="button" class="btn btn-ghost btn-sm tikhub-result-tab" data-tab="preview">预览</button>
+                <span id="tikhubResultStatus" style="margin-left:0.6rem;font-size:0.78rem;color:var(--text-muted);align-self:center;"></span>
+              </div>
+              <div id="tikhubResultArea" style="background:rgba(0,0,0,0.18);border:1px solid rgba(255,255,255,0.08);border-radius:var(--radius-sm);padding:0.75rem;min-height:160px;max-height:60vh;overflow:auto;font-size:0.82rem;"></div>
+            </div>
+          </div>
+
+          <!-- 多平台同行（基于 TikHub 代理） -->
+          <div id="content-xhs-competitor" class="content-block">
+            <div class="card">
+              <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
+                <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                  <h3 id="xhsCompetTitle" style="margin:0;">小红书同行</h3>
+                  <select id="xhsCompetPlatformSel" style="padding:0.3rem 0.5rem;font-size:0.82rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.2);border-radius:var(--radius-sm);color:var(--text);cursor:pointer;">
+                    <option value="xiaohongshu">小红书</option>
+                    <option value="douyin">抖音</option>
+                    <option value="kuaishou">快手</option>
+                    <option value="weibo">微博</option>
+                    <option value="weixin">微信视频号</option>
+                  </select>
+                  <p style="font-size:0.78rem;color:var(--text-muted);margin:0;line-height:1.55;">跟踪同行账号 + 关键词监测，同步作品与评论入库。按次扣积分。<span id="xhsCompetBalanceTip" style="margin-left:0.5rem;color:var(--accent);"></span></p>
+                </div>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                  <button type="button" id="xhsCompetBackBtn" class="btn btn-ghost btn-sm">← 返回技能商店</button>
+                  <button type="button" id="xhsCompetReloadCatalogBtn" class="btn btn-ghost btn-sm">刷新目录</button>
+                </div>
+              </div>
+
+              <div id="xhsCompetCatalogStatus" style="margin-top:0.5rem;font-size:0.78rem;color:var(--text-muted);"></div>
+
+              <div class="section-divider"></div>
+
+              <div class="store-tabs" style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+                <button type="button" class="store-tab xhs-compet-tab active" data-xc-tab="track" style="background:none;border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);padding:0.4rem 0.9rem;color:var(--text);cursor:pointer;font-size:0.85rem;">同行跟踪</button>
+                <button type="button" class="store-tab xhs-compet-tab" data-xc-tab="keyword" style="background:none;border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);padding:0.4rem 0.9rem;color:var(--text);cursor:pointer;font-size:0.85rem;">关键词</button>
+              </div>
+
+              <!-- Tab1: 同行跟踪 -->
+              <div id="xhsCompetTabTrack" class="xhs-compet-tab-pane">
+                <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-end;background:rgba(0,0,0,0.15);padding:0.75rem;border-radius:var(--radius-sm);">
+                  <div style="flex:1 1 14rem;min-width:12rem;">
+                    <label style="font-size:0.78rem;color:var(--text-muted);">同行昵称 <span style="color:#ef4444;">*</span></label>
+                    <input type="text" id="xhsCompetNameInput" placeholder="如：李子柒" style="width:100%;padding:0.45rem;font-size:0.88rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                  </div>
+                  <div style="flex:1 1 14rem;min-width:12rem;">
+                    <label id="xhsCompetUidLabel" style="font-size:0.78rem;color:var(--text-muted);">小红书号（可选）</label>
+                    <input type="text" id="xhsCompetRedIdInput" placeholder="red_id，可留空" style="width:100%;padding:0.45rem;font-size:0.88rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                  </div>
+                  <div>
+                    <button type="button" id="xhsCompetSearchUserBtn" class="btn btn-primary btn-sm">搜索用户</button>
+                  </div>
+                  <div style="flex-basis:100%;font-size:0.76rem;color:var(--text-muted);">
+                    <span id="xhsCompetSearchUserMsg"></span>
+                  </div>
+                </div>
+
+                <div id="xhsCompetUserSearchResult" style="margin-top:0.75rem;"></div>
+
+                <div class="section-divider"></div>
+
+                <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+                  <h4 style="margin:0;font-size:0.95rem;">已跟踪同行（<span id="xhsCompetTrackedCount">0</span>）</h4>
+                  <div style="display:flex;gap:0.4rem;">
+                    <button type="button" id="xhsCompetClearAllBtn" class="btn btn-ghost btn-sm" style="color:#ef4444;">清空全部</button>
+                  </div>
+                </div>
+                <div id="xhsCompetTrackedList" style="margin-top:0.5rem;"></div>
+              </div>
+
+              <!-- Tab2: 关键词 -->
+              <div id="xhsCompetTabKeyword" class="xhs-compet-tab-pane" style="display:none;">
+                <div style="display:flex;flex-wrap:wrap;gap:0.5rem;align-items:flex-end;background:rgba(0,0,0,0.15);padding:0.75rem;border-radius:var(--radius-sm);">
+                  <div style="flex:1 1 18rem;min-width:14rem;">
+                    <label style="font-size:0.78rem;color:var(--text-muted);">关键词 <span style="color:#ef4444;">*</span></label>
+                    <input type="text" id="xhsCompetKeywordInput" placeholder="如：露营装备" style="width:100%;padding:0.45rem;font-size:0.88rem;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:var(--radius-sm);color:var(--text);">
+                  </div>
+                  <div>
+                    <button type="button" id="xhsCompetSearchNoteBtn" class="btn btn-primary btn-sm">搜索作品</button>
+                  </div>
+                  <div style="flex-basis:100%;font-size:0.76rem;color:var(--text-muted);">
+                    <span id="xhsCompetSearchNoteMsg"></span>
+                  </div>
+                </div>
+
+                <div style="margin-top:0.75rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">
+                  <span id="xhsCompetKeywordSummary" style="font-size:0.78rem;color:var(--text-muted);"></span>
+                  <button type="button" id="xhsCompetKeywordNextPageBtn" class="btn btn-ghost btn-sm" disabled>下一页 →</button>
+                </div>
+                <div id="xhsCompetKeywordNoteList" style="margin-top:0.5rem;"></div>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
@@ -2215,6 +2360,8 @@
   <script src="/static/js/wecom-detail.js?v=20260416e"></script>
   <script src="/static/js/wecom-kf.js?v=20260416e"></script>
   <script src="/static/js/comfly-ecommerce-detail.js"></script>
+  <script src="/static/js/tikhub-explorer.js"></script>
+  <script src="/static/js/xhs-competitor.js"></script>
   <script src="/static/js/wecom-contacts.js?v=20260416i"></script>
   <script src="/static/js/publish.js"></script>
   <script src="/static/js/production.js"></script>

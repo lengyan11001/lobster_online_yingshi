@@ -71,6 +71,28 @@ window._openEcommerceDetailStudioView = function() {
   try { location.hash = 'ecommerce-detail-studio'; } catch (e1) {}
 };
 
+function _kebabToPascal(s) {
+  return s.split('-').map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1); }).join('');
+}
+
+function _bindWorkspaceButtons() {
+  document.querySelectorAll('[data-workspace]').forEach(function(card) {
+    var ws = card.getAttribute('data-workspace');
+    var fnName = '_open' + _kebabToPascal(ws) + 'View';
+    card.addEventListener('click', function(e) {
+      if (e.target.closest('.card-actions')) return;
+      if (typeof window[fnName] === 'function') window[fnName]();
+    });
+    var btn = card.querySelector('.workspace-entry-btn');
+    if (btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (typeof window[fnName] === 'function') window[fnName]();
+      });
+    }
+  });
+}
+
 function _openTwilioWhatsappConfigView() {
   _ensureSkillStoreVisible();
   var modal = document.getElementById('twilioWhatsappConfigModal');
@@ -367,7 +389,6 @@ function loadSkillStore() {
 
       var hasSutuiPkg = packages.some(function(p) { return p.id === 'sutui_mcp'; });
       var hasComflyPkg = packages.some(function(p) { return p.id === 'comfly_veo_skill'; });
-
       function paintSkillStoreList() {
         var html = '';
         if (hasSutuiPkg) html += _renderXSkillCard();
@@ -439,6 +460,19 @@ function loadSkillStore() {
             '<div class="card-tags">' + tags + '</div>' +
             '<div class="card-actions"><button type="button" class="btn btn-primary btn-sm wecom-config-entry-btn">配置</button></div></div>';
         }
+        if (pkg.workspace) {
+          var tagsW = (pkg.tags || []).map(function(t) { return '<span class="tag">' + escapeHtml(t) + '</span>'; }).join('');
+          var capW = pkg.capabilities_count ? ' · ' + pkg.capabilities_count + ' 个能力' : '';
+          var styleW = pkg.workspace_color
+            ? 'cursor:pointer;border-color:' + pkg.workspace_color + ';background:linear-gradient(135deg,' + pkg.workspace_color.replace(/[\d.]+\)$/, '0.10)') + ',transparent);'
+            : 'cursor:pointer;';
+          return '<div class="skill-store-card" data-workspace="' + escapeAttr(pkg.workspace) + '" style="' + styleW + '">' +
+            '<div class="card-label">' + debugBadge + escapeHtml(pkg.type || '数据') + ' <span class="badge-installed">已就绪</span></div>' +
+            '<div class="card-value">' + escapeHtml(pkg.name || pkg.id) + '</div>' +
+            '<div class="card-desc">' + escapeHtml(pkg.description || '') + capW + '</div>' +
+            '<div class="card-tags">' + tagsW + '</div>' +
+            '<div class="card-actions"><button type="button" class="btn btn-primary btn-sm workspace-entry-btn">打开工作台</button></div></div>';
+        }
         var statusBadge = '';
         var actionBtn = '';
         if (pkg.status === 'installed') {
@@ -469,6 +503,7 @@ function loadSkillStore() {
         _bindMetaSocialCardEntry();
         _bindEcommerceDetailCardEntry();
         _bindEcommercePublishCardEntry();
+        _bindWorkspaceButtons();
         _bindInstallUninstall(el);
         _bindXSkillConfigBtn();
         _bindComflyConfigBtn();
