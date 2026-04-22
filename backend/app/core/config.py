@@ -50,8 +50,8 @@ class Settings(BaseSettings):
     @classmethod
     def _lobster_edition_fixed_online(cls, v: object) -> str:
         return "online"
-    """品牌标记：与 static/branding/brands.json 的 marks 键一致（如 bihuo）。桌面快捷方式与首页 logo/文案由该标记决定。"""
-    lobster_brand_mark: str = "bihuo"
+    """品牌标记：与 static/branding/brands.json 的 marks 键一致（默认 yingshi / InsClaw）。桌面快捷方式与首页 logo/文案由该标记决定。"""
+    lobster_brand_mark: str = "yingshi"
     lobster_parent_account: Optional[str] = None
     """在线版为 True 时：登录注册与充值全部自维护，不走速推；用户配置算力账号（速推 Token）用于耗算力，速推扣多少我们扣多少算力。"""
     lobster_independent_auth: bool = True

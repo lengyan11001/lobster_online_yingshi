@@ -1,28 +1,17 @@
-必火 AI BOX — 桌面图标（由品牌图生成）
+InsClaw（品牌标记 yingshi）— 桌面图标（由品牌图生成）
 
-当前源图：static/bihu_source.png（白底「必火AI BOX」龙虾形象；若替换请先覆盖该文件再执行 regen_icons.sh）。
+当前默认渠道为 yingshi / InsClaw：安装脚本会根据 static/branding/brands.json 中 marks.yingshi.install 使用
+  static/yingshi_box.ico（Windows）、InsClaw.lnk 名称等。
+若仍为必火渠道（marks.bihu），对应源图为 static/bihu_source.png（白底「必火AI BOX」龙虾形象），生成 bihu_box.ico、bihu_*.png；替换请先覆盖源图再执行 regen_icons.sh。
 
-历史说明：早期曾用深蓝灰底 #1E1E24；现桌面与网页图标均以白底源图为准。若需改色可：
-  swift replace_icon_bg.swift bihu_source.png bihu_bg_new.png "#RRGGBB"
-  再以 bihu_bg_new.png 覆盖 bihu_source.png 后执行 regen_icons.sh
+生成文件（必火素材路径，兼容旧品牌）：
+  yingshi_box.ico / yingshi_*.png — InsClaw 网页与安装引用（参见 brands.json）
+  bihu_box.ico       — Windows 快捷方式 / 文件夹 / 应用图标（bihuo）
+  bihu_16.png … bihu_1024.png — 网页 favicon / bihuo 文档引用
 
-生成文件：
-  bihu_box.ico       — Windows 快捷方式 / 文件夹 / 应用图标（ASCII 文件名；内含 16～256 多档）
-  必火AI_BOX.icns    — macOS 应用 / 文件夹图标
-  bihu_16.png … bihu_1024.png — 网页 favicon / 文档引用
-
-一键重生（macOS，需 Xcode 命令行工具：sips、iconutil）：
+一键重生必火尺寸资源（macOS，需 Xcode 命令行工具：sips、iconutil）：
   cd static && chmod +x regen_icons.sh && ./regen_icons.sh
 
-手动步骤（与 regen_icons.sh 等价）：
-  cd static
-  # 若源为 JPEG 但扩展名为 .png，先：sips -s format png bihu_source.png --out t.png && mv t.png bihu_source.png
-  for s in 16 32 48 64 128 256 512 1024; do sips -z $s $s bihu_source.png --out bihu_${s}.png; done
-  python3 build_desktop_icon.py
-  # icns：见 BihuIcon.iconset 内各档命名，再 iconutil -c icns BihuIcon.iconset -o 必火AI_BOX.icns
+Windows 安装：install.bat / install_slim.bat 结束时会按 LOBSTER_BRAND_MARK 创建桌面快捷方式（默认 InsClaw）。跳过：安装前设置环境变量 LOBSTER_SKIP_DESKTOP_SHORTCUT=1。
 
-Windows 安装：install.bat 结束时会尝试在桌面创建快捷方式「Bihu_AI_BOX.lnk」（指向 start.bat，图标为 static\bihu_box.ico）。跳过：安装前设置环境变量 LOBSTER_SKIP_DESKTOP_SHORTCUT=1。
-
-Windows 手动换图标：右键快捷方式 → 属性 → 更改图标 → 浏览 → 选 static\bihu_box.ico
-
-macOS 手动：选中 .app 或文件夹 → 显示简介 → 将 必火AI_BOX.icns 拖到左上角图标上
+Windows 手动换图标：右键快捷方式 → 属性 → 更改图标 → 浏览 → 选对应品牌的 .ico（yingshi 为 static\yingshi_box.ico）。

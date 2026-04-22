@@ -901,7 +901,7 @@ def list_sessions(
     return {"items": sessions}
 
 
-_PURCHASE_INTENT_KEYWORDS = ["我想购买必火盒子"]
+_PURCHASE_INTENT_KEYWORDS = ["我想购买InsClaw", "我想购买 INSclaw", "购买 INSclaw", "我想购买必火盒子"]
 _PURCHASE_NOTIFY_USERS = "LiuXin|HeHao@BiHuoZhiNeng"
 
 

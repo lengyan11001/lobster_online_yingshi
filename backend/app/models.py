@@ -23,7 +23,7 @@ class User(Base):
     sutui_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     """服务号网页授权 openid，用于微信登录绑定"""
     wechat_openid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
-    """注册时客户端所在安装包的品牌标记（与 LOBSTER_BRAND_MARK / brands.json 的 marks 键一致，如 bihuo、yingshi）。"""
+    """注册时客户端所在安装包的品牌标记（与 LOBSTER_BRAND_MARK / brands.json 的 marks 键一致，默认 yingshi；兼容 bihuo）。"""
     brand_mark: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     """浏览器 localStorage 安装槽位 ID（与 X-Installation-Id 一致）；登录写入，供 OpenClaw 微信等渠道无 .env 时复用。"""
     client_installation_id: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
@@ -427,6 +427,14 @@ class EcommerceDetailJob(Base):
     product_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     saved_assets: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    # 淘宝上架辅助字段（PDF《自动化上架流程》）
+    """淘宝类目映射：{"parent_cate_id": int, "cate_id": int, "cate_path": "宠物/猫爬架"}。
+    暂用方案 A（用户填）作为兜底，方案 C（自动映射）后续接入。"""
+    taobao_cate_id: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    """宝贝标题/导购标题/关键词来源汇总，由 listing_title_builder 产出。
+    形如 {"listing_title": "...", "guide_title": "...", "structure": {...},
+          "keywords_used": [...], "sycm_views": [...], "sug_top": [...], "built_at": iso}"""
+    title_payload: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True, onupdate=datetime.utcnow)
 

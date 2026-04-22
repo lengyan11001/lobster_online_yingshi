@@ -682,7 +682,7 @@ def wechat_callback(
             db.refresh(existing)
             user = existing
         else:
-            _install_mark = (getattr(settings, "lobster_brand_mark", None) or "").strip().lower() or "bihuo"
+            _install_mark = (getattr(settings, "lobster_brand_mark", None) or "").strip().lower() or "yingshi"
             user = User(
                 email=email,
                 hashed_password=get_password_hash(f"wechat-{openid}-no-pwd"),
